@@ -2,7 +2,9 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- interactive-widget=resizes-content: ソフトキーボード表示時にレイアウトを
+     縮めて、メモ編集モーダル等がキーボードに隠れないようにする(Android Chrome) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <link rel="icon" href="data:,">
 <title>プロットボード</title>
 <style>
@@ -87,25 +89,36 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 /* ---- ブロック ---- */
 .block{
   position: absolute;
-  border-radius: 6px;
+  border-radius: 5px;
   border: 1.5px solid;
   box-shadow: 0 1px 2px rgba(0,0,0,.10);
-  padding: 4px 6px;
+  padding: 3px 5px;
   cursor: grab;
   z-index: 2;
   touch-action: pan-x pan-y; /* 長押し前の指の移動はスクロールとして扱う */
   user-select: none;
   -webkit-user-select: none;
-  /* overflowはタイトル側でクリップ（マークバッジが角からはみ出すため） */
+  /* overflowは.block-body側でクリップ（マークバッジが角からはみ出すため） */
+}
+.block-body{
+  max-height: 100%;
+  overflow: hidden;
+  pointer-events: none; /* タップ判定はブロック本体で行う */
 }
 .block-title{
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.3;
   word-break: break-word;
-  pointer-events: none; /* タップ判定はブロック本体で行う */
-  max-height: 100%;
-  overflow: hidden;
+}
+/* メモの冒頭をブロックの空きスペースに表示（入る分だけ。あふれはクリップ） */
+.block-memo{
+  font-size: 10px;
+  line-height: 1.4;
+  margin-top: 2px;
+  opacity: .72;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .block.selected{
   box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgba(0,0,0,.15);
@@ -129,11 +142,11 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 .handle{
   display: none;
   position: absolute;
-  right: -9px; bottom: -9px;
-  width: 22px; height: 22px;
+  right: -8px; bottom: -8px;
+  width: 18px; height: 18px;
   border-radius: 50%;
   background: #fff;
-  border: 2.5px solid var(--accent);
+  border: 2px solid var(--accent);
   cursor: nwse-resize;
   touch-action: none;
   z-index: 21;
@@ -158,7 +171,7 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 #titleInput{
   position: absolute;
   z-index: 30;
-  font: 600 13px/1.3 inherit;
+  font: 600 11px/1.3 inherit;
   font-family: inherit;
   color: var(--ink);
   border: 1.5px solid var(--accent);
@@ -255,8 +268,8 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 /* ---- マーク（★/フラッグ）バッジ ---- */
 .block-marks{
   position: absolute;
-  top: -10px; left: -7px;
-  font-size: 16px;
+  top: -8px; left: -5px;
+  font-size: 13px;
   line-height: 1;
   pointer-events: none;
   text-shadow: 0 1px 2px rgba(0,0,0,.3), 0 0 2px #fff;
@@ -268,8 +281,8 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 /* メモありインジケータ（ブロック右下の小さな点） */
 .memo-dot{
   position: absolute;
-  right: 5px; bottom: 5px;
-  width: 7px; height: 7px;
+  right: 3px; bottom: 3px;
+  width: 6px; height: 6px;
   border-radius: 50%;
   background: currentColor;
   opacity: .4;
@@ -298,8 +311,10 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
   max-height: 190px;
   overflow-y: auto;
 }
-#memoPop .memo-edit{
+#memoPop .memo-text:not([hidden]) + .memo-edit{
   margin-top: 7px;
+}
+#memoPop .memo-edit{
   border: 1px solid #c9d2d9;
   background: #fff;
   border-radius: 7px;
@@ -311,24 +326,28 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 }
 #memoPop.readonly .memo-edit{ display: none; }
 
-/* ---- メモ編集モーダル ---- */
+/* ---- メモ編集モーダル ----
+ * 画面ほぼ全体を使うシート型。高さはdvh基準なのでソフトキーボード表示時は
+ * その分縮み、テキストエリアが隠れない */
 #memoModal{
   position: fixed;
   inset: 0;
   background: rgba(30, 36, 42, .38);
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  padding: 16px;
+  padding: 10px;
   z-index: 100;
+  height: 100dvh;
 }
 #memoModal[hidden]{ display: none; }
 #memoModal .card{
   background: #fff;
   border-radius: 13px;
   box-shadow: 0 12px 40px rgba(0,0,0,.3);
-  width: min(500px, 100%);
-  padding: 14px 16px;
+  width: min(720px, 100%);
+  max-height: 100%;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -337,11 +356,13 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
   font-size: 14px;
   font-weight: 700;
   word-break: break-word;
+  flex: none;
 }
 #memoTa{
   width: 100%;
-  min-height: 170px;
-  resize: vertical;
+  flex: 1;
+  min-height: 0;
+  resize: none;
   font: 13px/1.6 inherit;
   font-family: inherit;
   padding: 9px 10px;
@@ -504,7 +525,7 @@ const COLOR_LABELS = {
   green:'緑', deepgreen:'深緑', yellow:'黄', cyan:'シアン',
   blue:'青', magenta:'マゼンタ', orange:'オレンジ', gray:'グレー'
 };
-const CELL_MIN = 44, CELL_MAX = 96;   // マスの実サイズ範囲(px)
+const CELL_MIN = 22, CELL_MAX = 48;   // マスの実サイズ範囲(px)。旧値の半分（縦横半分＝面積1/4）
 const MAX_COLS = 60, MAX_ROWS = 60;
 const LONG_PRESS_MS = 300;            // モバイル長押しドラッグ開始
 const DRAG_START_PX = 4;              // マウスのドラッグ開始しきい値
@@ -694,15 +715,20 @@ function renderAll(){
 function makeBlockEl(id){
   const el = document.createElement('div');
   el.dataset.id = id;
+  const body = document.createElement('div');
+  body.className = 'block-body';
   const title = document.createElement('div');
   title.className = 'block-title';
+  const memo = document.createElement('div');
+  memo.className = 'block-memo';
+  body.append(title, memo);
   const marks = document.createElement('div');
   marks.className = 'block-marks';
   const dot = document.createElement('div');
   dot.className = 'memo-dot';
   const handle = document.createElement('div');
   handle.className = 'handle';
-  el.append(title, marks, dot, handle);
+  el.append(body, marks, dot, handle);
   el.addEventListener('pointerdown', onBlockPointerDown);
   handle.addEventListener('pointerdown', onHandlePointerDown);
   // PC: カーソルを合わせるとメモがポップオーバー表示
@@ -729,6 +755,8 @@ function layoutBlock(b){
   el.style.width = (b.w * cell - 4) + 'px';
   el.style.height = (b.h * cell - 4) + 'px';
   el.querySelector('.block-title').textContent = b.title;
+  // メモ冒頭をブロックの空きスペースに表示（あふれた分はクリップ）
+  el.querySelector('.block-memo').textContent = b.memo;
   // マーク（★/フラッグ）バッジ
   const marksEl = el.querySelector('.block-marks');
   marksEl.textContent = '';
@@ -804,14 +832,18 @@ flagBtn.addEventListener('click', () => toggleMark('flag'));
 function updateMemoPop(){
   const targetId = state.hoverId || state.selectedId;
   const b = targetId ? getBlock(targetId) : null;
-  if (!b || !b.memo || state.drag || state.resize || state.placing ||
-      state.editing || state.memoEdit){
+  const readonly = !!b && targetId !== state.selectedId;
+  // ホバー（読み取り専用）はメモがある時だけ。選択中はメモが無くても
+  // 「メモを編集」ボタンを出すため常に表示する
+  if (!b || state.drag || state.resize || state.placing ||
+      state.editing || state.memoEdit || (readonly && !b.memo)){
     memoPop.hidden = true;
     return;
   }
-  const readonly = targetId !== state.selectedId;
   memoPop.classList.toggle('readonly', readonly);
-  memoPop.querySelector('.memo-text').textContent = b.memo;
+  const textEl = memoPop.querySelector('.memo-text');
+  textEl.textContent = b.memo;
+  textEl.hidden = !b.memo;
   memoPop.dataset.id = b.id;
   memoPop.hidden = false;
   // ブロックの上に表示。入らなければ下に
@@ -875,10 +907,16 @@ copyBtn.addEventListener('click', () => {
   state.placing = { proto, gx: proto.x, gy: proto.y, valid: false };
   placingEl = document.createElement('div');
   placingEl.className = 'block placing-preview color-' + proto.color;
+  const pbody = document.createElement('div');
+  pbody.className = 'block-body';
   const t = document.createElement('div');
   t.className = 'block-title';
   t.textContent = proto.title;
-  placingEl.appendChild(t);
+  const pm = document.createElement('div');
+  pm.className = 'block-memo';
+  pm.textContent = proto.memo;
+  pbody.append(t, pm);
+  placingEl.appendChild(pbody);
   placingEl.style.left = (proto.x * cell + 2) + 'px';
   placingEl.style.top = (proto.y * cell + 2) + 'px';
   placingEl.style.width = (proto.w * cell - 4) + 'px';
@@ -1231,9 +1269,13 @@ function startTitleEdit(id){
   if (!b) return;
   state.editing = { id };
   titleInput.value = b.title;
-  titleInput.style.left = (b.x * cell + 4) + 'px';
+  // マスが小さくても入力できる最小幅を確保（グリッド内に収める）
+  const g = board().grid;
+  const width = Math.max(120, b.w * cell - 8);
+  const left = clamp(b.x * cell + 4, 0, Math.max(0, g.cols * cell - width - 4));
+  titleInput.style.left = left + 'px';
   titleInput.style.top = (b.y * cell + 4) + 'px';
-  titleInput.style.width = (b.w * cell - 8) + 'px';
+  titleInput.style.width = width + 'px';
   titleInput.hidden = false;
   titleInput.focus();
   titleInput.select();
