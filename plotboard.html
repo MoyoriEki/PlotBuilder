@@ -2,7 +2,9 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- interactive-widget=resizes-content: ソフトキーボード表示時にレイアウトを
+     縮めて、メモ編集モーダル等がキーボードに隠れないようにする(Android Chrome) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <link rel="icon" href="data:,">
 <title>プロットボード</title>
 <style>
@@ -324,24 +326,28 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 }
 #memoPop.readonly .memo-edit{ display: none; }
 
-/* ---- メモ編集モーダル ---- */
+/* ---- メモ編集モーダル ----
+ * 画面ほぼ全体を使うシート型。高さはdvh基準なのでソフトキーボード表示時は
+ * その分縮み、テキストエリアが隠れない */
 #memoModal{
   position: fixed;
   inset: 0;
   background: rgba(30, 36, 42, .38);
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  padding: 16px;
+  padding: 10px;
   z-index: 100;
+  height: 100dvh;
 }
 #memoModal[hidden]{ display: none; }
 #memoModal .card{
   background: #fff;
   border-radius: 13px;
   box-shadow: 0 12px 40px rgba(0,0,0,.3);
-  width: min(500px, 100%);
-  padding: 14px 16px;
+  width: min(720px, 100%);
+  max-height: 100%;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -350,11 +356,13 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
   font-size: 14px;
   font-weight: 700;
   word-break: break-word;
+  flex: none;
 }
 #memoTa{
   width: 100%;
-  min-height: 170px;
-  resize: vertical;
+  flex: 1;
+  min-height: 0;
+  resize: none;
   font: 13px/1.6 inherit;
   font-family: inherit;
   padding: 9px 10px;
