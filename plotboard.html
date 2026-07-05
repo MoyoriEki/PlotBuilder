@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>プロットボード</title>
+<style>
+/* ============================================================
+   プロットボード Phase 1
+   方眼紙イメージの薄いグリッド + パステル系ブロック
+   ============================================================ */
+:root{
+  --paper: #fafaf7;
+  --line: #dfe5ea;
+  --ink: #333a40;
+  --accent: #4a90d9;
+  --danger: #c53030;
+}
+*{ box-sizing: border-box; margin: 0; padding: 0; }
+html, body{ height: 100%; }
+body{
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN",
+               "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- ヘッダー ---- */
+header{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e4e7ea;
+  background: #ffffffcc;
+  flex: none;
+}
+header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+.hint{ font-size: 11.5px; color: #8a939b; }
+@media (max-width: 680px){ .hint{ display: none; } }
+
+#saveIndicator{
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #8a939b;
+  white-space: nowrap;
+}
+#saveIndicator .dot{
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #58b368;
+}
+#saveIndicator.saving .dot{ background: #e6a23c; animation: pulse 1s infinite; }
+#saveIndicator.error .dot{ background: var(--danger); }
+@keyframes pulse{ 50%{ opacity: .35; } }
+
+/* ---- ボード ---- */
+#scroller{
+  flex: 1;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+#boardWrap{
+  position: relative;
+  display: inline-block;
+  padding: 18px 60px 60px 18px;
+}
+#grid{
+  position: relative;
+  background: #fff;
+  border: 1px solid #c9d2d9;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  /* サイズ・background-size は JS が設定 */
+  touch-action: pan-x pan-y; /* スクロールは許可、ダブルタップズームは無効化 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ---- ブロック ---- */
+.block{
+  position: absolute;
+  border-radius: 6px;
+  border: 1.5px solid;
+  box-shadow: 0 1px 2px rgba(0,0,0,.10);
+  padding: 4px 6px;
+  cursor: grab;
+  z-index: 2;
+  touch-action: pan-x pan-y; /* 長押し前の指の移動はスクロールとして扱う */
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+.block-title{
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  word-break: break-word;
+  pointer-events: none; /* タップ判定はブロック本体で行う */
+}
+.block.selected{
+  box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgba(0,0,0,.15);
+  z-index: 3;
+}
+.block.dragging{
+  opacity: .88;
+  cursor: grabbing;
+  box-shadow: 0 8px 20px rgba(0,0,0,.28);
+  z-index: 20;
+}
+.block.invalid{
+  box-shadow: 0 0 0 2.5px var(--danger), 0 8px 20px rgba(0,0,0,.25);
+}
+.block.settle{
+  transition: left .13s ease-out, top .13s ease-out,
+              width .13s ease-out, height .13s ease-out;
+}
+
+/* リサイズハンドル（選択中のみ） */
+.handle{
+  display: none;
+  position: absolute;
+  right: -9px; bottom: -9px;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2.5px solid var(--accent);
+  cursor: nwse-resize;
+  touch-action: none;
+  z-index: 21;
+}
+.block.selected .handle{ display: block; }
+
+/* 配置可否ゴースト */
+#ghost{
+  position: absolute;
+  border: 2px dashed #4f9e58;
+  background: rgba(110, 200, 120, .16);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 6;
+}
+#ghost.invalid{
+  border-color: var(--danger);
+  background: rgba(220, 70, 70, .16);
+}
+
+/* タイトルのインライン編集 */
+#titleInput{
+  position: absolute;
+  z-index: 30;
+  font: 600 13px/1.3 inherit;
+  font-family: inherit;
+  color: var(--ink);
+  border: 1.5px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 5px;
+  background: #fff;
+  outline: none;
+}
+
+/* ---- 行・列の追加/削除（端のホバーで現れる控えめなUI） ---- */
+.edge-ctl{
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  z-index: 8;
+  opacity: .55;
+  transition: opacity .15s;
+}
+#colCtl{ flex-direction: column; }
+#rowCtl{ flex-direction: row; }
+@media (hover: hover){
+  .edge-ctl{ opacity: .18; }
+  #boardWrap:hover .edge-ctl{ opacity: .85; }
+  .edge-ctl:hover{ opacity: 1; }
+}
+.edge-ctl button{
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1px solid #b8c2cb;
+  background: #fff;
+  color: #55606a;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,.12);
+}
+.edge-ctl button:disabled{
+  opacity: .3;
+  cursor: default;
+}
+
+/* ---- ツールバー（画面下部固定・モバイル親指圏） ---- */
+#toolbar{
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  background: #fff;
+  border: 1px solid #d4dade;
+  border-radius: 16px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  z-index: 50;
+  transition: transform .18s ease, opacity .18s ease;
+  max-width: calc(100vw - 16px);
+}
+#toolbar.hidden{
+  transform: translateX(-50%) translateY(150%);
+  opacity: 0;
+  pointer-events: none;
+}
+.swatch{
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 2px solid;
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+}
+.swatch.active{ box-shadow: 0 0 0 2.5px #444; }
+#delBtn{
+  margin-left: 10px;
+  flex: none;
+  border: 1px solid #e08a8a;
+  background: #fff;
+  color: var(--danger);
+  border-radius: 9px;
+  padding: 6px 13px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+#delBtn.armed{
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+/* ---- 色プリセット8色（方眼紙上で目に痛くない彩度 / 濃色文字） ---- */
+.color-green    { background:#c9ecb4; border-color:#93c47d; color:#2b5e1d; }
+.color-deepgreen{ background:#8cc498; border-color:#5a9e6f; color:#123c20; }
+.color-yellow   { background:#f6ee9e; border-color:#d3bf4b; color:#655505; }
+.color-cyan     { background:#b0ecf1; border-color:#67c3cd; color:#0d5a63; }
+.color-blue     { background:#b3d6f5; border-color:#6fa8dc; color:#1c4e79; }
+.color-magenta  { background:#f3b8dd; border-color:#d570b0; color:#7d1c5c; }
+.color-orange   { background:#fbd6a2; border-color:#e0a25c; color:#754409; }
+.color-gray     { background:#dce0e4; border-color:#a8b1b9; color:#39434c; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>プロットボード</h1>
+  <span class="hint">空きマスをダブルクリック / ダブルタップでブロック作成。モバイルは長押しでドラッグ</span>
+  <span id="saveIndicator"><span class="dot"></span><span id="saveText">保存済み</span></span>
+</header>
+
+<div id="scroller">
+  <div id="boardWrap">
+    <div id="grid">
+      <div id="ghost" hidden></div>
+      <input id="titleInput" hidden autocomplete="off" enterkeyhint="done" placeholder="タイトル">
+    </div>
+    <div id="colCtl" class="edge-ctl">
+      <button id="colPlus"  title="列を追加" aria-label="列を追加">＋</button>
+      <button id="colMinus" title="右端の列を削除" aria-label="右端の列を削除">−</button>
+    </div>
+    <div id="rowCtl" class="edge-ctl">
+      <button id="rowPlus"  title="行を追加" aria-label="行を追加">＋</button>
+      <button id="rowMinus" title="下端の行を削除" aria-label="下端の行を削除">−</button>
+    </div>
+  </div>
+</div>
+
+<div id="toolbar" class="hidden">
+  <!-- 色スウォッチはJSで生成（Phase 2 でコピー・マークがここに増える想定） -->
+  <span id="swatches" style="display:flex; gap:8px;"></span>
+  <button id="delBtn">削除</button>
+</div>
+
+<script>
+'use strict';
+/* ============================================================
+ * 実装方式メモ（指示書の要求により判断理由を記載）:
+ * - vanilla JS を採用。単一ファイル・ノービルド制約下では JSX が使えず
+ *   React は記述が煩雑になる上、ドラッグ中の高頻度更新は結局 DOM 直接
+ *   操作（transform/left/top の書き換え）が必要で仮想DOMの恩恵が薄い。
+ *   軽量方針（このアプリの生命線はドラッグの軽快さ）にも合致する。
+ * - D&D は設計書どおり Pointer Events（pointerdown/move/up +
+ *   setPointerCapture）で自前実装。TouchEvents/MouseEvents の二重実装は
+ *   しない。唯一の例外として、ドラッグ確定後にブラウザのネイティブ
+ *   スクロールが割り込むのを防ぐため、非passiveな touchmove リスナで
+ *   preventDefault() だけ行う（ロジックは持たない）。
+ * ============================================================ */
+
+/* ---------- 定数 ---------- */
+const COLOR_IDS = ['green','deepgreen','yellow','cyan','blue','magenta','orange','gray'];
+const COLOR_LABELS = {
+  green:'緑', deepgreen:'深緑', yellow:'黄', cyan:'シアン',
+  blue:'青', magenta:'マゼンタ', orange:'オレンジ', gray:'グレー'
+};
+const CELL_MIN = 44, CELL_MAX = 96;   // マスの実サイズ範囲(px)
+const MAX_COLS = 60, MAX_ROWS = 60;
+const LONG_PRESS_MS = 300;            // モバイル長押しドラッグ開始
+const DRAG_START_PX = 4;              // マウスのドラッグ開始しきい値
+const LP_CANCEL_PX  = 10;             // 長押し前にこの距離動いたらスクロール扱い
+const TAP_DOUBLE_MS = 350, TAP_DOUBLE_PX = 28; // ダブルタップ判定
+const SAVE_DEBOUNCE_MS = 1200;
+
+/* ---------- データモデル ---------- */
+function genId(){ return 'blk-' + Math.random().toString(36).slice(2, 10); }
+
+function newDoc(){
+  return {
+    version: 1,
+    title: '無題',
+    boards: [{ id: 'board-1', grid: { cols: 12, rows: 6 }, blocks: [] }]
+  };
+}
+function newBlock(x, y){
+  // memo / marks / thumb は Phase 1 では未使用だがデータとして保持する
+  return { id: genId(), x, y, w: 1, h: 1,
+           title: '', color: 'green', memo: '', marks: [], thumb: null };
+}
+// 復元データの欠損フィールドを補う（将来フィールド追加時の前方互換も兼ねる）
+function normalizeDoc(d){
+  if (!d || !Array.isArray(d.boards) || !d.boards[0]) return newDoc();
+  d.version = 1;
+  d.title = typeof d.title === 'string' ? d.title : '無題';
+  const bd = d.boards[0];
+  if (!bd.grid || !(bd.grid.cols >= 1) || !(bd.grid.rows >= 1)) bd.grid = { cols: 12, rows: 6 };
+  bd.grid.cols = Math.min(MAX_COLS, Math.floor(bd.grid.cols));
+  bd.grid.rows = Math.min(MAX_ROWS, Math.floor(bd.grid.rows));
+  bd.blocks = (Array.isArray(bd.blocks) ? bd.blocks : []).map(b => ({
+    id: b.id || genId(),
+    x: Math.max(0, b.x|0), y: Math.max(0, b.y|0),
+    w: Math.max(1, b.w|0), h: Math.max(1, b.h|0),
+    title: typeof b.title === 'string' ? b.title : '',
+    color: COLOR_IDS.includes(b.color) ? b.color : 'green',
+    memo: typeof b.memo === 'string' ? b.memo : '',
+    marks: Array.isArray(b.marks) ? b.marks : [],
+    thumb: b.thumb ?? null
+  }));
+  return d;
+}
+
+/* ---------- 状態 ---------- */
+const state = {
+  doc: newDoc(),
+  selectedId: null,
+  pending: null,   // pointerdown 済み・ドラッグ未確定のセッション
+  drag: null,      // 移動ドラッグ中
+  resize: null,    // リサイズ中
+  editing: null    // タイトル編集中 { id }
+};
+let cell = 64;     // 1マスのpxサイズ（renderAllで再計算）
+window.__plotboard = state; // 動作確認・デバッグ用フック
+
+const board  = () => state.doc.boards[0];
+const blocks = () => board().blocks;
+const getBlock = id => blocks().find(b => b.id === id);
+
+/* ---------- DOM参照 ---------- */
+const $ = id => document.getElementById(id);
+const scroller = $('scroller'), boardWrap = $('boardWrap'), gridEl = $('grid');
+const ghostEl = $('ghost'), titleInput = $('titleInput');
+const toolbarEl = $('toolbar'), swatchesEl = $('swatches'), delBtn = $('delBtn');
+const saveIndicator = $('saveIndicator'), saveText = $('saveText');
+const colPlus = $('colPlus'), colMinus = $('colMinus');
+const rowPlus = $('rowPlus'), rowMinus = $('rowMinus');
+const blockEls = new Map(); // id -> element
+
+/* ---------- IndexedDB 保存 ---------- */
+const DB_NAME = 'plotboard', DB_STORE = 'docs', DB_KEY = 'current';
+let dbPromise = null;
+function openDB(){
+  if (!dbPromise){
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return dbPromise;
+}
+async function idbLoad(){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(DB_STORE).objectStore(DB_STORE).get(DB_KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSave(doc){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(doc)), DB_KEY);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+let saveTimer = null;
+function setIndicator(mode){
+  saveIndicator.className = mode === 'saving' ? 'saving' : mode === 'error' ? 'error' : '';
+  saveText.textContent = mode === 'saving' ? '保存中…' : mode === 'error' ? '保存エラー' : '保存済み';
+}
+function scheduleSave(){
+  setIndicator('saving');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
+}
+async function flushSave(){
+  clearTimeout(saveTimer); saveTimer = null;
+  try{
+    await idbSave(state.doc);
+    setIndicator('saved');
+  }catch(err){
+    console.error('保存に失敗:', err);
+    setIndicator('error');
+  }
+}
+// タブを閉じる/裏に回る前に未保存分を書き込む（モバイルで重要）
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && saveTimer) flushSave();
+});
+
+/* ---------- 幾何・配置判定 ---------- */
+function rectsOverlap(a, b){
+  return a.x < b.x + b.w && b.x < a.x + a.w &&
+         a.y < b.y + b.h && b.y < a.y + a.h;
+}
+function placementValid(x, y, w, h, ignoreId){
+  const g = board().grid;
+  if (x < 0 || y < 0 || x + w > g.cols || y + h > g.rows) return false;
+  return !blocks().some(b => b.id !== ignoreId && rectsOverlap({x, y, w, h}, b));
+}
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+/* ---------- レンダリング ---------- */
+function computeCell(){
+  // 画面幅に合わせてスケール。収まらない場合は横スクロール（マスは正方形固定）
+  const avail = scroller.clientWidth - 18 - 60 - 4; // boardWrapのpadding分
+  return clamp(Math.floor(avail / board().grid.cols), CELL_MIN, CELL_MAX);
+}
+
+function renderAll(){
+  cell = computeCell();
+  const g = board().grid;
+  const gw = g.cols * cell, gh = g.rows * cell;
+  gridEl.style.width = gw + 'px';
+  gridEl.style.height = gh + 'px';
+  gridEl.style.backgroundSize = `${cell}px ${cell}px`;
+
+  // ブロック再構築
+  for (const el of blockEls.values()) el.remove();
+  blockEls.clear();
+  for (const b of blocks()){
+    const el = makeBlockEl(b.id);
+    blockEls.set(b.id, el);
+    layoutBlock(b);
+    gridEl.appendChild(el);
+  }
+
+  // 列コントロールは右端の垂直中央、行コントロールは下端の左寄せ
+  // （下端中央だと画面下部固定ツールバーと重なるため左寄せにする）
+  const ctlH = 30 * 2 + 6;
+  $('colCtl').style.top  = (18 + Math.max(0, gh / 2 - ctlH / 2)) + 'px';
+  $('colCtl').style.right = '14px';
+  $('rowCtl').style.left = '18px';
+  $('rowCtl').style.bottom = '14px';
+
+  updateEdgeControls();
+  updateToolbar();
+}
+
+function makeBlockEl(id){
+  const el = document.createElement('div');
+  el.dataset.id = id;
+  const title = document.createElement('div');
+  title.className = 'block-title';
+  const handle = document.createElement('div');
+  handle.className = 'handle';
+  el.append(title, handle);
+  el.addEventListener('pointerdown', onBlockPointerDown);
+  handle.addEventListener('pointerdown', onHandlePointerDown);
+  return el;
+}
+
+function layoutBlock(b){
+  const el = blockEls.get(b.id);
+  if (!el) return;
+  el.className = 'block color-' + b.color +
+    (state.selectedId === b.id ? ' selected' : '');
+  el.style.left = (b.x * cell + 2) + 'px';
+  el.style.top = (b.y * cell + 2) + 'px';
+  el.style.width = (b.w * cell - 4) + 'px';
+  el.style.height = (b.h * cell - 4) + 'px';
+  el.querySelector('.block-title').textContent = b.title;
+}
+
+/* ---------- 選択・ツールバー ---------- */
+function select(id){
+  if (state.selectedId === id) return;
+  const prev = state.selectedId;
+  state.selectedId = id;
+  if (prev){ const pb = getBlock(prev); if (pb) layoutBlock(pb); }
+  if (id){ const b = getBlock(id); if (b) layoutBlock(b); }
+  disarmDelete();
+  updateToolbar();
+}
+function deselect(){ select(null); }
+
+for (const c of COLOR_IDS){
+  const btn = document.createElement('button');
+  btn.className = 'swatch color-' + c;
+  btn.title = COLOR_LABELS[c];
+  btn.addEventListener('click', () => {
+    const b = getBlock(state.selectedId);
+    if (!b) return;
+    b.color = c;
+    layoutBlock(b);
+    updateToolbar();
+    scheduleSave();
+  });
+  btn.dataset.color = c;
+  swatchesEl.appendChild(btn);
+}
+
+function updateToolbar(){
+  const b = getBlock(state.selectedId);
+  toolbarEl.classList.toggle('hidden', !b);
+  if (!b) return;
+  for (const s of swatchesEl.children){
+    s.classList.toggle('active', s.dataset.color === b.color);
+  }
+}
+
+/* 削除は undo が無いため2度押し方式（誤削除防止） */
+let delArmTimer = null;
+function disarmDelete(){
+  clearTimeout(delArmTimer); delArmTimer = null;
+  delBtn.classList.remove('armed');
+  delBtn.textContent = '削除';
+}
+delBtn.addEventListener('click', () => {
+  const b = getBlock(state.selectedId);
+  if (!b) return;
+  if (!delBtn.classList.contains('armed')){
+    delBtn.classList.add('armed');
+    delBtn.textContent = '本当に削除？';
+    delArmTimer = setTimeout(disarmDelete, 2500);
+    return;
+  }
+  disarmDelete();
+  const i = blocks().indexOf(b);
+  if (i >= 0) blocks().splice(i, 1);
+  blockEls.get(b.id)?.remove();
+  blockEls.delete(b.id);
+  state.selectedId = null;
+  updateToolbar();
+  updateEdgeControls();
+  scheduleSave();
+});
+
+/* ---------- 行・列の追加/削除 ---------- */
+function updateEdgeControls(){
+  const g = board().grid;
+  const lastColUsed = blocks().some(b => b.x + b.w >= g.cols);
+  const lastRowUsed = blocks().some(b => b.y + b.h >= g.rows);
+  colPlus.disabled = g.cols >= MAX_COLS;
+  rowPlus.disabled = g.rows >= MAX_ROWS;
+  colMinus.disabled = g.cols <= 1 || lastColUsed;
+  rowMinus.disabled = g.rows <= 1 || lastRowUsed;
+  colMinus.title = colMinus.disabled && lastColUsed
+    ? 'ブロックが載っている列は削除できません' : '右端の列を削除';
+  rowMinus.title = rowMinus.disabled && lastRowUsed
+    ? 'ブロックが載っている行は削除できません' : '下端の行を削除';
+}
+colPlus.addEventListener('click', () => { board().grid.cols++; renderAll(); scheduleSave(); });
+rowPlus.addEventListener('click', () => { board().grid.rows++; renderAll(); scheduleSave(); });
+colMinus.addEventListener('click', () => {
+  if (colMinus.disabled) return;
+  board().grid.cols--; renderAll(); scheduleSave();
+});
+rowMinus.addEventListener('click', () => {
+  if (rowMinus.disabled) return;
+  board().grid.rows--; renderAll(); scheduleSave();
+});
+
+/* ---------- ゴースト（配置可否のリアルタイム表示） ---------- */
+function showGhost(x, y, w, h, valid){
+  ghostEl.hidden = false;
+  ghostEl.classList.toggle('invalid', !valid);
+  ghostEl.style.left = (x * cell + 1) + 'px';
+  ghostEl.style.top = (y * cell + 1) + 'px';
+  ghostEl.style.width = (w * cell - 2) + 'px';
+  ghostEl.style.height = (h * cell - 2) + 'px';
+}
+function hideGhost(){ ghostEl.hidden = true; }
+
+/* ---------- ブロックのドラッグ移動 ---------- */
+function onBlockPointerDown(e){
+  if (state.drag || state.resize || state.pending) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const id = e.currentTarget.dataset.id;
+  commitTitleEdit();
+  const rect = e.currentTarget.getBoundingClientRect();
+  const s = {
+    id,
+    pointerId: e.pointerId,
+    isTouch: e.pointerType !== 'mouse',
+    startX: e.clientX, startY: e.clientY,
+    grabDX: e.clientX - rect.left,
+    grabDY: e.clientY - rect.top,
+    lpTimer: null
+  };
+  state.pending = s;
+  if (s.isTouch){
+    // 長押しでドラッグモード開始。それまでの指の移動はスクロールに委ねる
+    s.lpTimer = setTimeout(() => {
+      if (state.pending === s) startDrag(s);
+    }, LONG_PRESS_MS);
+  }
+}
+
+function startDrag(s){
+  state.pending = null;
+  const b = getBlock(s.id);
+  const el = blockEls.get(s.id);
+  if (!b || !el) return;
+  state.drag = {
+    id: s.id, pointerId: s.pointerId,
+    grabDX: s.grabDX, grabDY: s.grabDY,
+    gx: b.x, gy: b.y, valid: true, moved: false
+  };
+  try{ el.setPointerCapture(s.pointerId); }catch(_){}
+  el.classList.add('dragging');
+  select(s.id);
+  showGhost(b.x, b.y, b.w, b.h, true);
+  if (navigator.vibrate) navigator.vibrate(10);
+}
+
+function dragMove(e){
+  const d = state.drag;
+  const b = getBlock(d.id), el = blockEls.get(d.id);
+  if (!b || !el) return;
+  const gr = gridEl.getBoundingClientRect();
+  const px = e.clientX - gr.left - d.grabDX;
+  const py = e.clientY - gr.top - d.grabDY;
+  el.style.left = px + 'px';
+  el.style.top = py + 'px';
+  const g = board().grid;
+  const gx = clamp(Math.round((px - 2) / cell), 0, g.cols - b.w);
+  const gy = clamp(Math.round((py - 2) / cell), 0, g.rows - b.h);
+  d.moved = true;
+  if (gx !== d.gx || gy !== d.gy || d.valid === null){
+    d.gx = gx; d.gy = gy;
+    d.valid = placementValid(gx, gy, b.w, b.h, b.id);
+    showGhost(gx, gy, b.w, b.h, d.valid);
+    el.classList.toggle('invalid', !d.valid);
+  }
+}
+
+function endDrag(cancelled){
+  const d = state.drag;
+  if (!d) return;
+  state.drag = null;
+  const b = getBlock(d.id), el = blockEls.get(d.id);
+  hideGhost();
+  if (!b || !el) return;
+  try{ el.releasePointerCapture(d.pointerId); }catch(_){}
+  el.classList.remove('dragging', 'invalid');
+  if (!cancelled && d.moved && d.valid && (d.gx !== b.x || d.gy !== b.y)){
+    b.x = d.gx; b.y = d.gy;
+    scheduleSave();
+  }
+  // 確定位置（不可なら元位置）へスナップして戻す
+  el.classList.add('settle');
+  layoutBlock(b);
+  setTimeout(() => el.classList.remove('settle'), 160);
+  updateEdgeControls();
+}
+
+/* ---------- リサイズ（右下ハンドル） ---------- */
+function onHandlePointerDown(e){
+  if (state.drag || state.resize) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  e.stopPropagation();
+  const id = e.currentTarget.parentElement.dataset.id;
+  const b = getBlock(id);
+  if (!b) return;
+  commitTitleEdit();
+  state.resize = { id, pointerId: e.pointerId, w: b.w, h: b.h, valid: true, moved: false };
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  showGhost(b.x, b.y, b.w, b.h, true);
+}
+
+function resizeMove(e){
+  const r = state.resize;
+  const b = getBlock(r.id), el = blockEls.get(r.id);
+  if (!b || !el) return;
+  const gr = gridEl.getBoundingClientRect();
+  const g = board().grid;
+  const w = clamp(Math.round((e.clientX - gr.left - b.x * cell) / cell), 1, g.cols - b.x);
+  const h = clamp(Math.round((e.clientY - gr.top - b.y * cell) / cell), 1, g.rows - b.y);
+  if (w !== r.w || h !== r.h){
+    r.w = w; r.h = h; r.moved = true;
+    r.valid = placementValid(b.x, b.y, w, h, b.id);
+    showGhost(b.x, b.y, w, h, r.valid);
+    el.classList.toggle('invalid', !r.valid);
+    el.style.width = (w * cell - 4) + 'px';
+    el.style.height = (h * cell - 4) + 'px';
+  }
+}
+
+function endResize(cancelled){
+  const r = state.resize;
+  if (!r) return;
+  state.resize = null;
+  const b = getBlock(r.id), el = blockEls.get(r.id);
+  hideGhost();
+  if (!b || !el) return;
+  el.classList.remove('invalid');
+  if (!cancelled && r.moved && r.valid && (r.w !== b.w || r.h !== b.h)){
+    b.w = r.w; b.h = r.h;
+    scheduleSave();
+  }
+  el.classList.add('settle');
+  layoutBlock(b);
+  setTimeout(() => el.classList.remove('settle'), 160);
+  updateEdgeControls();
+}
+
+/* ---------- ポインタの共通ハンドラ ---------- */
+window.addEventListener('pointermove', e => {
+  if (state.resize && e.pointerId === state.resize.pointerId){ resizeMove(e); return; }
+  if (state.drag && e.pointerId === state.drag.pointerId){ dragMove(e); return; }
+  const s = state.pending;
+  if (s && e.pointerId === s.pointerId){
+    const dist = Math.hypot(e.clientX - s.startX, e.clientY - s.startY);
+    if (s.isTouch){
+      // 長押し成立前に動いた → スクロール操作。ドラッグは開始しない
+      if (dist > LP_CANCEL_PX){ clearTimeout(s.lpTimer); state.pending = null; }
+    } else if (dist > DRAG_START_PX){
+      startDrag(s);
+      dragMove(e);
+    }
+  }
+});
+
+window.addEventListener('pointerup', e => {
+  if (state.resize && e.pointerId === state.resize.pointerId){ endResize(false); return; }
+  if (state.drag && e.pointerId === state.drag.pointerId){ endDrag(false); return; }
+  const s = state.pending;
+  if (s && e.pointerId === s.pointerId){
+    clearTimeout(s.lpTimer);
+    state.pending = null;
+    // ドラッグに至らないタップ/クリック → 選択。選択済みならタイトル編集
+    const wasSelected = state.selectedId === s.id;
+    select(s.id);
+    if (wasSelected) startTitleEdit(s.id);
+  }
+});
+
+window.addEventListener('pointercancel', e => {
+  if (state.resize && e.pointerId === state.resize.pointerId) endResize(true);
+  if (state.drag && e.pointerId === state.drag.pointerId) endDrag(true);
+  const s = state.pending;
+  if (s && e.pointerId === s.pointerId){
+    clearTimeout(s.lpTimer);
+    state.pending = null;
+  }
+});
+
+// ドラッグ/リサイズ確定後にネイティブスクロールが割り込むのを防ぐ
+window.addEventListener('touchmove', e => {
+  if (state.drag || state.resize) e.preventDefault();
+}, { passive: false });
+
+// タッチ長押しのコンテキストメニューを抑止
+boardWrap.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------- 空きマスのダブルクリック/ダブルタップで新規作成 ---------- */
+let lastTap = null;
+gridEl.addEventListener('pointerup', e => {
+  if (e.target !== gridEl) return;
+  if (state.drag || state.resize) return;
+  const now = performance.now();
+  if (lastTap && now - lastTap.t < TAP_DOUBLE_MS &&
+      Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < TAP_DOUBLE_PX){
+    lastTap = null;
+    createBlockAt(e.clientX, e.clientY);
+  } else {
+    lastTap = { t: now, x: e.clientX, y: e.clientY };
+    commitTitleEdit();
+    deselect();
+  }
+});
+
+function createBlockAt(clientX, clientY){
+  const gr = gridEl.getBoundingClientRect();
+  const g = board().grid;
+  const gx = clamp(Math.floor((clientX - gr.left) / cell), 0, g.cols - 1);
+  const gy = clamp(Math.floor((clientY - gr.top) / cell), 0, g.rows - 1);
+  if (!placementValid(gx, gy, 1, 1, null)){
+    // 置けない位置は赤ゴーストを一瞬見せて知らせる
+    showGhost(gx, gy, 1, 1, false);
+    setTimeout(hideGhost, 350);
+    return;
+  }
+  const b = newBlock(gx, gy);
+  blocks().push(b);
+  const el = makeBlockEl(b.id);
+  blockEls.set(b.id, el);
+  gridEl.appendChild(el);
+  layoutBlock(b);
+  select(b.id);
+  updateEdgeControls();
+  scheduleSave();
+  startTitleEdit(b.id); // 生成直後にタイトル入力状態へ
+}
+
+/* ---------- タイトルのインライン編集 ---------- */
+function startTitleEdit(id){
+  const b = getBlock(id);
+  if (!b) return;
+  state.editing = { id };
+  titleInput.value = b.title;
+  titleInput.style.left = (b.x * cell + 4) + 'px';
+  titleInput.style.top = (b.y * cell + 4) + 'px';
+  titleInput.style.width = (b.w * cell - 8) + 'px';
+  titleInput.hidden = false;
+  titleInput.focus();
+  titleInput.select();
+}
+function commitTitleEdit(){
+  if (!state.editing) return;
+  const b = getBlock(state.editing.id);
+  state.editing = null;
+  titleInput.hidden = true;
+  if (b && b.title !== titleInput.value.trim()){
+    b.title = titleInput.value.trim();
+    layoutBlock(b);
+    scheduleSave();
+  }
+}
+function cancelTitleEdit(){
+  state.editing = null;
+  titleInput.hidden = true;
+}
+titleInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') commitTitleEdit();
+  else if (e.key === 'Escape') cancelTitleEdit();
+});
+titleInput.addEventListener('blur', commitTitleEdit);
+titleInput.addEventListener('pointerdown', e => e.stopPropagation());
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !state.editing) deselect();
+});
+
+/* ---------- リサイズ・回転対応 ---------- */
+let resizeRaf = null;
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(resizeRaf);
+  resizeRaf = requestAnimationFrame(renderAll);
+});
+
+/* ---------- 起動 ---------- */
+(async function init(){
+  try{
+    const stored = await idbLoad();
+    state.doc = normalizeDoc(stored);
+  }catch(err){
+    console.error('IndexedDBからの復元に失敗。初期状態で開始:', err);
+    state.doc = newDoc();
+  }
+  renderAll();
+  setIndicator('saved');
+})();
+</script>
+</body>
+</html>
