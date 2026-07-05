@@ -7,6 +7,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <link rel="icon" href="data:,">
 <title>プロットボード</title>
+<!-- ストレージブリッジ（Dropbox連携の共通ライブラリ・無改造で利用）
+     読み込みに失敗した場合はローカルのみモードで動作する -->
+<link rel="stylesheet" href="https://moyorieki.github.io/storage-bridge/storage-bridge.css">
+<script src="https://moyorieki.github.io/storage-bridge/storage-bridge.js"></script>
 <style>
 /* ============================================================
    プロットボード Phase 1
@@ -31,17 +35,208 @@ body{
   overflow: hidden;
 }
 
+/* ---- ビュー切替 ---- */
+#titleView, #boardView{
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#titleView[hidden], #boardView[hidden]{ display: none; }
+
 /* ---- ヘッダー ---- */
 header{
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 8px 16px;
   border-bottom: 1px solid #e4e7ea;
   background: #ffffffcc;
   flex: none;
+  min-height: 46px;
 }
-header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
+header h1{
+  font-size: 15px; font-weight: 700; letter-spacing: .04em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#backBtn, #syncBtn{
+  flex: none;
+  width: 32px; height: 32px;
+  border-radius: 9px;
+  border: 1px solid #c9d2d9;
+  background: #fff;
+  color: #55606a;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+#syncBtn:disabled{ opacity: .4; cursor: default; }
+#syncBtn.spin{ animation: sbspin 1s linear infinite; }
+@keyframes sbspin{ to{ transform: rotate(360deg); } }
+
+/* ---- タイトル一覧 ---- */
+#titleListWrap{
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 10px 12px 90px;
+}
+#titleList{
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.tl-item{
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #dbe1e6;
+  border-radius: 12px;
+  padding: 10px 10px 10px 14px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.tl-main{
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+.tl-name{
+  font-size: 14.5px;
+  font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tl-sub{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #8a939b;
+}
+.tl-chip{
+  padding: 1.5px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.st-synced { color:#2f7d3d; border-color:#9ccba6; background:#eef8f0; }
+.st-local  { color:#6b7580; border-color:#c2ccd4; background:#f2f5f7; }
+.st-cloud  { color:#1c5f8f; border-color:#94c2e0; background:#ecf5fb; }
+.st-pending{ color:#9a6a12; border-color:#dcbd7e; background:#fdf6e7; }
+.st-newer  { color:#8a3a9d; border-color:#cf9edd; background:#f9effc; }
+.tl-act{
+  flex: none;
+  width: 40px;
+  border: none;
+  background: none;
+  color: #98a2ab;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.tl-act:active{ background: #eef1f4; }
+#titleEmpty{
+  text-align: center;
+  color: #8a939b;
+  font-size: 13px;
+  margin-top: 46px;
+}
+#titleViewFoot{
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  background: linear-gradient(to top, #fafaf7ee 55%, transparent);
+}
+#newTitleBtn{
+  pointer-events: auto;
+  width: min(360px, 100%);
+  padding: 12px 0;
+  border-radius: 14px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 5px 18px rgba(74,144,217,.4);
+}
+
+/* Dropbox接続UI（ブリッジのDefaultUI用の最低限スタイル。
+   ブリッジ付属CSSが読めない環境でも崩れないように自前で持つ） */
+#dbxMount{ margin-left: auto; }
+#dbxMount .sb-ui{ display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #8a939b; }
+#dbxMount .sb-status.sb-on{ color: #2f7d3d; }
+#dbxMount .sb-connect-btn{
+  border: 1px solid #c9d2d9; background: #fff; color: #55606a;
+  border-radius: 8px; padding: 5px 10px; font-size: 12px;
+  font-family: inherit; cursor: pointer; white-space: nowrap;
+}
+.sb-modal-overlay{
+  position: fixed; inset: 0; background: rgba(30,36,42,.4);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; z-index: 130;
+}
+.sb-modal{
+  background: #fff; border-radius: 12px; padding: 16px;
+  width: min(420px, 100%); display: flex; flex-direction: column; gap: 10px;
+  font-size: 13px;
+}
+.sb-appkey-input{
+  padding: 8px 10px; border: 1px solid #c4ccd3; border-radius: 8px;
+  font-size: 14px; font-family: inherit;
+}
+.sb-modal-actions{ display: flex; justify-content: flex-end; gap: 8px; }
+.sb-modal-actions button{
+  border: 1px solid #c4ccd3; background: #fff; color: #55606a;
+  border-radius: 8px; padding: 7px 14px; font-size: 13px;
+  font-family: inherit; cursor: pointer;
+}
+
+/* ---- 汎用ダイアログ（名前入力・競合） ---- */
+.dialog{
+  position: fixed; inset: 0;
+  background: rgba(30,36,42,.38);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; z-index: 110;
+}
+.dialog[hidden]{ display: none; }
+.dialog .card{
+  background: #fff; border-radius: 13px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.3);
+  width: min(440px, 100%);
+  padding: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.dialog h2{ font-size: 14.5px; font-weight: 700; }
+.dialog-desc{ font-size: 12.5px; line-height: 1.6; color: #55606a; }
+.dialog-error{ font-size: 12px; color: var(--danger); }
+#nameInput{
+  padding: 9px 10px; border: 1px solid #c4ccd3; border-radius: 8px;
+  font-size: 14px; font-family: inherit; outline-color: var(--accent);
+}
+.dialog .btns{ display: flex; justify-content: flex-end; gap: 8px; }
+.dialog .btns.col{ flex-direction: column; align-items: stretch; }
+.dialog .btns button{
+  border-radius: 9px; padding: 9px 16px; font-size: 13px;
+  font-family: inherit; cursor: pointer;
+  border: 1px solid #c4ccd3; background: #fff; color: #55606a;
+}
+.dialog .btns button.primary{
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.dialog .btns button.quiet{ border: none; color: #98a2ab; }
 .hint{ font-size: 11.5px; color: #8a939b; }
 @media (max-width: 680px){ .hint{ display: none; } }
 
@@ -60,6 +255,8 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 }
 #saveIndicator.saving .dot{ background: #e6a23c; animation: pulse 1s infinite; }
 #saveIndicator.error .dot{ background: var(--danger); }
+#saveIndicator.pending .dot{ background: #e6a23c; }
+#saveIndicator.offline .dot{ background: #98a2ab; }
 @keyframes pulse{ 50%{ opacity: .35; } }
 
 /* ---- ボード ---- */
@@ -451,10 +648,29 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 </head>
 <body>
 
+<!-- ============ タイトル一覧ビュー ============ -->
+<div id="titleView">
+  <header>
+    <h1>プロットボード</h1>
+    <div id="dbxMount"></div>
+  </header>
+  <div id="titleListWrap">
+    <ul id="titleList"></ul>
+    <p id="titleEmpty" hidden>作品がありません。「＋ 新規作成」から始めてください。</p>
+  </div>
+  <div id="titleViewFoot">
+    <button id="newTitleBtn" type="button">＋ 新規作成</button>
+  </div>
+</div>
+
+<!-- ============ ボードビュー ============ -->
+<div id="boardView" hidden>
 <header>
-  <h1>プロットボード</h1>
+  <button id="backBtn" type="button" title="作品一覧へ戻る">←</button>
+  <h1 id="boardTitle">無題</h1>
   <span class="hint">空きマスをダブルクリック / ダブルタップでブロック作成。モバイルは長押しでドラッグ</span>
   <span id="saveIndicator"><span class="dot"></span><span id="saveText">保存済み</span></span>
+  <button id="syncBtn" type="button" title="今すぐ同期" hidden>⟳</button>
 </header>
 
 <div id="scroller">
@@ -477,6 +693,7 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
     </div>
   </div>
 </div>
+</div><!-- /boardView -->
 
 <div id="toolbar" class="hidden">
   <span id="tools" style="display:flex; gap:6px; align-items:center;">
@@ -500,6 +717,32 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
     <div class="btns">
       <button id="memoCancel" type="button">キャンセル</button>
       <button id="memoSave" type="button">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 作品名の入力モーダル（新規作成/名前変更 共用） -->
+<div id="nameModal" class="dialog" hidden>
+  <div class="card">
+    <h2 id="nameModalTitle">新規作成</h2>
+    <input id="nameInput" type="text" placeholder="作品タイトル" autocomplete="off" enterkeyhint="done">
+    <p id="nameError" class="dialog-error" hidden></p>
+    <div class="btns">
+      <button id="nameCancel" type="button">キャンセル</button>
+      <button id="nameOk" type="button" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- 同期競合ダイアログ -->
+<div id="conflictModal" class="dialog" hidden>
+  <div class="card">
+    <h2>別の端末での更新があります</h2>
+    <p id="conflictDesc" class="dialog-desc"></p>
+    <div class="btns col">
+      <button id="conflictMine" type="button" class="primary">この端末の内容で上書き</button>
+      <button id="conflictCloud" type="button">クラウドの内容を読み込む（この端末の変更は破棄）</button>
+      <button id="conflictLater" type="button" class="quiet">あとで決める（同期を保留）</button>
     </div>
   </div>
 </div>
@@ -532,15 +775,30 @@ const DRAG_START_PX = 4;              // マウスのドラッグ開始しきい
 const LP_CANCEL_PX  = 10;             // 長押し前にこの距離動いたらスクロール扱い
 const TAP_DOUBLE_MS = 350, TAP_DOUBLE_PX = 28; // ダブルタップ判定
 const SAVE_DEBOUNCE_MS = 1200;
+// 編集後のDropboxアップロードまでの間隔（テストから短縮できるようフック付き）
+const CLOUD_DEBOUNCE_MS = window.__PB_CLOUD_DEBOUNCE ?? 20000;
+const NAME_FORBIDDEN = /[\\/:?*"<>|]/; // Dropboxのパス禁止文字
+
+// 端末識別子（JSONのdeviceフィールド用）
+const deviceId = (() => {
+  let d = localStorage.getItem('pb_device');
+  if (!d){
+    d = 'dev-' + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem('pb_device', d);
+  }
+  return d;
+})();
 
 /* ---------- データモデル ---------- */
 function genId(){ return 'blk-' + Math.random().toString(36).slice(2, 10); }
 
-function newDoc(){
+function newDoc(name){
   // 縦長デフォルト（モバイル配慮の縦長ファースト方針。以降のUIも縦長を優先して設計する）
   return {
     version: 1,
-    title: '無題',
+    title: name || '無題',
+    updatedAt: null,  // ISO文字列。保存のたびに更新
+    device: null,     // 最終更新した端末の識別子
     boards: [{ id: 'board-1', grid: { cols: 6, rows: 12 }, blocks: [] }]
   };
 }
@@ -554,6 +812,8 @@ function normalizeDoc(d){
   if (!d || !Array.isArray(d.boards) || !d.boards[0]) return newDoc();
   d.version = 1;
   d.title = typeof d.title === 'string' ? d.title : '無題';
+  d.updatedAt = typeof d.updatedAt === 'string' ? d.updatedAt : null;
+  d.device = typeof d.device === 'string' ? d.device : null;
   const bd = d.boards[0];
   if (!bd.grid || !(bd.grid.cols >= 1) || !(bd.grid.rows >= 1)) bd.grid = { cols: 6, rows: 12 };
   bd.grid.cols = Math.min(MAX_COLS, Math.floor(bd.grid.cols));
@@ -574,6 +834,8 @@ function normalizeDoc(d){
 /* ---------- 状態 ---------- */
 const state = {
   doc: newDoc(),
+  currentName: null, // 開いている作品名（titlesストアのキー）
+  rec: null,         // 現在の作品レコード { name, doc, rev, dirty, updatedAt, syncedAt }
   selectedId: null,
   pending: null,   // pointerdown 済み・ドラッグ未確定のセッション
   drag: null,      // 移動ドラッグ中
@@ -599,66 +861,121 @@ const starBtn = $('starBtn'), flagBtn = $('flagBtn');
 const memoBtn = $('memoBtn'), copyBtn = $('copyBtn');
 const memoPop = $('memoPop'), memoModal = $('memoModal'), memoTa = $('memoTa');
 const placeHint = $('placeHint');
+const titleView = $('titleView'), boardView = $('boardView');
+const titleListEl = $('titleList'), boardTitleEl = $('boardTitle');
+const backBtn = $('backBtn'), syncBtn = $('syncBtn'), newTitleBtn = $('newTitleBtn');
+const nameModal = $('nameModal'), nameInput = $('nameInput'), nameError = $('nameError');
+const conflictModal = $('conflictModal');
 const saveIndicator = $('saveIndicator'), saveText = $('saveText');
 const colPlus = $('colPlus'), colMinus = $('colMinus');
 const rowPlus = $('rowPlus'), rowMinus = $('rowMinus');
 const blockEls = new Map(); // id -> element
 
-/* ---------- IndexedDB 保存 ---------- */
-const DB_NAME = 'plotboard', DB_STORE = 'docs', DB_KEY = 'current';
+/* ---------- IndexedDB 保存 ----------
+ * v2: 複数作品対応。'titles'ストアに作品名をキーとしてレコードを保存。
+ * 旧'docs'ストア(単一ボード)はマイグレーション後もそのまま残す（消さない） */
+const DB_NAME = 'plotboard', DB_STORE = 'docs', DB_TITLES = 'titles', DB_KEY = 'current';
 let dbPromise = null;
 function openDB(){
   if (!dbPromise){
     dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+      const req = indexedDB.open(DB_NAME, 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+        if (!db.objectStoreNames.contains(DB_TITLES)) db.createObjectStore(DB_TITLES);
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
   }
   return dbPromise;
 }
-async function idbLoad(){
-  const db = await openDB();
+function idbReq(req){
   return new Promise((resolve, reject) => {
-    const req = db.transaction(DB_STORE).objectStore(DB_STORE).get(DB_KEY);
-    req.onsuccess = () => resolve(req.result || null);
+    req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 }
-async function idbSave(doc){
+async function idbLegacyLoad(){ // 旧形式(Phase 2まで)の単一ボードデータ
+  const db = await openDB();
+  return idbReq(db.transaction(DB_STORE).objectStore(DB_STORE).get(DB_KEY)).then(r => r || null);
+}
+async function idbTitleGet(name){
+  const db = await openDB();
+  return idbReq(db.transaction(DB_TITLES).objectStore(DB_TITLES).get(name)).then(r => r || null);
+}
+async function idbTitlePut(rec){
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(doc)), DB_KEY);
+    const tx = db.transaction(DB_TITLES, 'readwrite');
+    tx.objectStore(DB_TITLES).put(JSON.parse(JSON.stringify(rec)), rec.name);
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
 }
+async function idbTitleDelete(name){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_TITLES, 'readwrite');
+    tx.objectStore(DB_TITLES).delete(name);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbTitlesAll(){
+  const db = await openDB();
+  return idbReq(db.transaction(DB_TITLES).objectStore(DB_TITLES).getAll()).then(r => r || []);
+}
 
+/* ---------- ローカル保存（一次ストレージ）と同期インジケータ ---------- */
 let saveTimer = null;
-function setIndicator(mode){
-  saveIndicator.className = mode === 'saving' ? 'saving' : mode === 'error' ? 'error' : '';
-  saveText.textContent = mode === 'saving' ? '保存中…' : mode === 'error' ? '保存エラー' : '保存済み';
+function setIndicator(cls, text){
+  saveIndicator.className = cls;
+  saveText.textContent = text;
+}
+// 保存/同期の状態を1つのインジケータに集約して表示
+function updateSyncUI(){
+  if (saveTimer)                setIndicator('saving', '保存中…');
+  else if (conflictPending)     setIndicator('error', '競合');
+  else if (cloudBusy)           setIndicator('saving', '同期中…');
+  else if (!canCloud())         setIndicator('', 'ローカル保存済み');
+  else if (!navigator.onLine)   setIndicator('offline', 'オフライン');
+  else if (state.rec?.dirty)    setIndicator('pending', '同期待ち');
+  else                          setIndicator('', 'クラウド同期済み');
+  syncBtn.hidden = !bridgeAvailable;
+  syncBtn.disabled = !canCloud() || cloudBusy;
+  syncBtn.classList.toggle('spin', cloudBusy);
 }
 function scheduleSave(){
-  setIndicator('saving');
+  if (!state.rec) return;
+  const now = new Date().toISOString();
+  state.doc.updatedAt = now;
+  state.doc.device = deviceId;
+  state.rec.dirty = true;
+  state.rec.updatedAt = now;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
+  scheduleCloudUpload();
+  updateSyncUI();
 }
 async function flushSave(){
   clearTimeout(saveTimer); saveTimer = null;
+  if (!state.rec){ updateSyncUI(); return; }
   try{
-    await idbSave(state.doc);
-    setIndicator('saved');
+    await idbTitlePut(state.rec);
   }catch(err){
     console.error('保存に失敗:', err);
-    setIndicator('error');
+    setIndicator('error', '保存エラー');
+    return;
   }
+  updateSyncUI();
 }
-// タブを閉じる/裏に回る前に未保存分を書き込む（モバイルで重要）
+// タブを閉じる/裏に回る前に未保存分の書き込みとアップロードをフラッシュ（モバイルで重要）
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && saveTimer) flushSave();
+  if (document.visibilityState !== 'hidden') return;
+  if (saveTimer) flushSave();
+  if (state.rec?.dirty) syncNow();
 });
 
 /* ---------- 幾何・配置判定 ---------- */
@@ -1315,21 +1632,497 @@ document.addEventListener('keydown', e => {
 /* ---------- リサイズ・回転対応 ---------- */
 let resizeRaf = null;
 window.addEventListener('resize', () => {
+  if (boardView.hidden) return;
   cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(renderAll);
 });
 
+/* ============================================================
+ * Phase 3: Dropbox同期（ストレージブリッジ経由・無改造で利用）
+ * - ローカル(IndexedDB)が常に一次ストレージ。クラウドはLast-Write-Wins
+ * - revベースの競合検知。自動マージはしない（軽量方針）
+ * ============================================================ */
+const bridgeAvailable = !!window.__PB_TEST_BRIDGE || typeof StorageBridge !== 'undefined';
+let storage = null;
+let cloudBusy = false;        // アップロード/ダウンロード実行中
+let cloudTimer = null;        // アップロードのデバウンスタイマー
+let conflictPending = null;   // 競合ダイアログ表示中 { name, rec, meta }
+let cloudReady = false;
+
+if (bridgeAvailable){
+  // __PB_TEST_BRIDGE は自動テスト用のフェイク実装差し込みフック
+  storage = window.__PB_TEST_BRIDGE || new StorageBridge({
+    basePath: '/PlotBoard',
+    storagePrefix: 'plotboard',
+    ui: true,              // ブリッジ標準の接続UI（タイトル一覧ヘッダに表示）
+    uiTarget: '#dbxMount',
+  });
+  storage.on('connected', onCloudConnected);
+  storage.on('disconnected', () => {
+    cloudReady = false;
+    updateSyncUI();
+    if (!titleView.hidden) refreshTitleList();
+  });
+  storage.on('error', e => console.warn('[sync]', e));
+  if (storage.isConnected) queueMicrotask(onCloudConnected);
+}
+function canCloud(){ return !!(storage && storage.isConnected); }
+
+async function onCloudConnected(){
+  if (cloudReady) return;
+  cloudReady = true;
+  updateSyncUI();
+  if (!titleView.hidden) await refreshTitleList();
+  syncDirtyAll();
+}
+
+// rev取得（get_metadata）。ブリッジ未提供のAPIなので、ブリッジ本体は改造せず
+// 期限切れ自動リトライ付きの内部fetch(_apiFetch)を利用する薄いラッパーで補う
+async function dbxMeta(name){
+  try{
+    return await storage._apiFetch('files/get_metadata', {
+      path: storage._resolve(name + '.json'),
+    });
+  }catch(e){
+    if (String(e.message).includes('not_found')) return null;
+    throw e;
+  }
+}
+
+function scheduleCloudUpload(){
+  if (!canCloud() || !state.currentName) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => syncNow(), CLOUD_DEBOUNCE_MS);
+}
+
+// アップロード（rev比較つき）。rev不一致＝他端末の更新 → 競合ダイアログ
+async function syncNow(name){
+  name = name || state.currentName;
+  if (!name) return;
+  clearTimeout(cloudTimer); cloudTimer = null;
+  if (!canCloud() || !navigator.onLine || conflictPending){ updateSyncUI(); return; }
+  const rec = (state.currentName === name && state.rec) ? state.rec : await idbTitleGet(name);
+  if (!rec || !rec.dirty){ updateSyncUI(); return; }
+  cloudBusy = true; updateSyncUI();
+  try{
+    const meta = await dbxMeta(name);
+    // rev不一致（他端末の更新、または初回アップロード時に同名ファイルが既にある）
+    if (meta && meta.rev !== rec.rev){
+      openConflict(name, rec, meta);
+      return;
+    }
+    const res = await storage.save(name + '.json', JSON.stringify(rec.doc));
+    rec.rev = res.rev;
+    rec.dirty = false;
+    rec.syncedAt = new Date().toISOString();
+    await idbTitlePut(rec);
+  }catch(e){
+    console.warn('[sync] アップロード失敗:', e);
+  }finally{
+    cloudBusy = false;
+    updateSyncUI();
+    if (!titleView.hidden) refreshTitleList();
+  }
+}
+
+// 未同期(dirty)の全作品をアップロード（接続時・オンライン復帰時）
+async function syncDirtyAll(){
+  if (syncDirtyAll._busy) return;
+  syncDirtyAll._busy = true;
+  try{
+    const all = await idbTitlesAll();
+    for (const rec of all){
+      if (!canCloud() || conflictPending) break;
+      if (rec.dirty) await syncNow(rec.name);
+    }
+  }finally{
+    syncDirtyAll._busy = false;
+  }
+}
+window.addEventListener('online', () => { updateSyncUI(); if (canCloud()) syncDirtyAll(); });
+window.addEventListener('offline', updateSyncUI);
+
+syncBtn.addEventListener('click', async () => {
+  if (saveTimer) await flushSave();
+  syncNow();
+});
+
+/* ---------- 競合ダイアログ（2択＋保留） ---------- */
+function openConflict(name, rec, meta){
+  conflictPending = { name, rec, meta };
+  $('conflictDesc').textContent =
+    `「${name}」はこの端末での変更とは別に、他の端末で更新されています。` +
+    `どちらの内容を残すか選んでください（自動では統合されません）。`;
+  conflictModal.hidden = false;
+  updateSyncUI();
+}
+async function resolveConflict(choice){
+  const c = conflictPending;
+  conflictPending = null;
+  conflictModal.hidden = true;
+  if (!c || choice === 'later'){ updateSyncUI(); return; }
+  const { name, rec } = c;
+  cloudBusy = true; updateSyncUI();
+  try{
+    if (choice === 'mine'){
+      // この端末の内容で上書き
+      const res = await storage.save(name + '.json', JSON.stringify(rec.doc));
+      rec.rev = res.rev;
+      rec.dirty = false;
+      rec.syncedAt = new Date().toISOString();
+      await idbTitlePut(rec);
+    }else{
+      // クラウドの内容を読み込む（この端末の変更は破棄）
+      const text = await storage.load(name + '.json');
+      const meta = await dbxMeta(name);
+      rec.doc = normalizeDoc(JSON.parse(text));
+      rec.doc.title = name;
+      rec.rev = meta ? meta.rev : null;
+      rec.dirty = false;
+      rec.updatedAt = rec.doc.updatedAt || new Date().toISOString();
+      rec.syncedAt = new Date().toISOString();
+      await idbTitlePut(rec);
+      if (state.currentName === name){
+        state.rec = rec;
+        state.doc = rec.doc;
+        deselect();
+        renderAll();
+      }
+    }
+  }catch(e){
+    console.warn('[sync] 競合解決に失敗:', e);
+    rec.dirty = true;
+  }finally{
+    cloudBusy = false;
+    updateSyncUI();
+    if (!titleView.hidden) refreshTitleList();
+  }
+}
+$('conflictMine').addEventListener('click', () => resolveConflict('mine'));
+$('conflictCloud').addEventListener('click', () => resolveConflict('cloud'));
+$('conflictLater').addEventListener('click', () => resolveConflict('later'));
+
+/* ============================================================
+ * タイトル（作品）管理
+ * ============================================================ */
+let remoteEntries = []; // 直近に取得したDropbox側ファイル一覧
+
+function fmtDate(iso){
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return '—';
+  return `${d.getMonth() + 1}/${d.getDate()} ` +
+         `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+async function refreshTitleList(){
+  const locals = await idbTitlesAll();
+  remoteEntries = [];
+  if (canCloud()){
+    try{
+      remoteEntries = (await storage.list())
+        .filter(e => e['.tag'] === 'file' && e.name.toLowerCase().endsWith('.json'));
+    }catch(e){
+      console.warn('[sync] 一覧取得失敗:', e);
+    }
+  }
+  // ローカルとクラウドをマージ
+  const items = new Map();
+  for (const rec of locals) items.set(rec.name, { name: rec.name, rec, remote: null });
+  for (const ent of remoteEntries){
+    const name = ent.name.replace(/\.json$/i, '');
+    const it = items.get(name);
+    if (it) it.remote = ent;
+    else items.set(name, { name, rec: null, remote: ent });
+  }
+  const arr = [...items.values()].sort((a, b) => {
+    const ta = a.rec?.updatedAt || a.remote?.server_modified || '';
+    const tb = b.rec?.updatedAt || b.remote?.server_modified || '';
+    return tb.localeCompare(ta);
+  });
+  titleListEl.textContent = '';
+  $('titleEmpty').hidden = arr.length > 0;
+  for (const it of arr) titleListEl.appendChild(makeTitleRow(it));
+}
+
+function titleStatus(it){
+  if (!it.rec)          return { cls: 'st-cloud',   label: 'クラウドのみ' };
+  if (it.rec.dirty)     return { cls: 'st-pending', label: '同期待ち' };
+  if (!canCloud())      return it.rec.rev ? { cls: 'st-synced', label: '同期済み' }
+                                          : { cls: 'st-local',  label: 'ローカルのみ' };
+  if (!it.remote)       return { cls: 'st-local',   label: 'ローカルのみ' };
+  if (it.remote.rev === it.rec.rev) return { cls: 'st-synced', label: '同期済み' };
+  return { cls: 'st-newer', label: 'クラウドに更新あり' };
+}
+
+function makeTitleRow(it){
+  const li = document.createElement('li');
+  li.className = 'tl-item';
+  const main = document.createElement('div');
+  main.className = 'tl-main';
+  const nm = document.createElement('div');
+  nm.className = 'tl-name';
+  nm.textContent = it.name;
+  const sub = document.createElement('div');
+  sub.className = 'tl-sub';
+  const date = document.createElement('span');
+  date.textContent = fmtDate(it.rec?.updatedAt || it.remote?.server_modified);
+  const st = titleStatus(it);
+  const chip = document.createElement('span');
+  chip.className = 'tl-chip ' + st.cls;
+  chip.textContent = st.label;
+  sub.append(date, chip);
+  main.append(nm, sub);
+  main.addEventListener('click', () => openTitle(it.name));
+  li.appendChild(main);
+  if (it.rec){ // 名前変更はローカルにある作品のみ（クラウドのみは一度開いてから）
+    const rn = document.createElement('button');
+    rn.className = 'tl-act';
+    rn.title = '名前変更';
+    rn.textContent = '✎';
+    rn.addEventListener('click', () => renameTitle(it.name));
+    li.appendChild(rn);
+  }
+  const del = document.createElement('button');
+  del.className = 'tl-act';
+  del.title = '削除';
+  del.textContent = '🗑';
+  del.addEventListener('click', () => deleteTitle(it));
+  li.appendChild(del);
+  return li;
+}
+
+/* ---- 名前入力モーダル（新規作成/名前変更 共用） ---- */
+let nameCb = null, nameExclude = null;
+function openNameModal(title, initial, cb, exclude){
+  $('nameModalTitle').textContent = title;
+  nameInput.value = initial || '';
+  nameError.hidden = true;
+  nameModal.hidden = false;
+  nameCb = cb;
+  nameExclude = exclude || null;
+  nameInput.focus();
+  nameInput.select();
+}
+function closeNameModal(){
+  nameModal.hidden = true;
+  nameCb = null;
+  nameExclude = null;
+}
+async function validateName(name){
+  if (!name) return 'タイトルを入力してください';
+  if (NAME_FORBIDDEN.test(name)) return '使用できない文字が含まれています: \\ / : ? * " < > |';
+  if (name.length > 80) return 'タイトルが長すぎます（80文字まで）';
+  if (nameExclude && name === nameExclude) return null; // リネームで名前そのまま
+  const lower = name.toLowerCase();
+  const locals = await idbTitlesAll();
+  if (locals.some(r => r.name.toLowerCase() === lower) ||
+      remoteEntries.some(e => e.name.toLowerCase() === lower + '.json')){
+    return '同名の作品がすでにあります';
+  }
+  return null;
+}
+async function submitName(){
+  const name = nameInput.value.trim();
+  const err = await validateName(name);
+  if (err){
+    nameError.textContent = err;
+    nameError.hidden = false;
+    return;
+  }
+  const cb = nameCb;
+  closeNameModal();
+  if (cb) cb(name);
+}
+$('nameOk').addEventListener('click', submitName);
+$('nameCancel').addEventListener('click', closeNameModal);
+nameInput.addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter') submitName();
+  else if (e.key === 'Escape') closeNameModal();
+});
+nameModal.addEventListener('pointerdown', e => {
+  if (e.target === nameModal) closeNameModal();
+});
+
+/* ---- 新規作成 ---- */
+newTitleBtn.addEventListener('click', () => {
+  openNameModal('新規作成', '', async (name) => {
+    const now = new Date().toISOString();
+    const doc = newDoc(name);
+    doc.updatedAt = now;
+    doc.device = deviceId;
+    const rec = { name, doc, rev: null, dirty: true, updatedAt: now, syncedAt: null };
+    await idbTitlePut(rec);
+    openTitle(name);
+  });
+});
+
+/* ---- 名前変更 ----
+ * 同期済み作品はDropbox側のリネーム(move)も伴うため、オフライン中は不可
+ * （採用理由: 「次回同期時に反映」方式はリネーム待ちキューの管理が増えるため） */
+async function renameTitle(oldName){
+  const rec = await idbTitleGet(oldName);
+  if (!rec) return;
+  if (rec.rev && !canCloud()){
+    alert('同期済みの作品の名前変更にはDropbox接続が必要です（オフライン中は不可）');
+    return;
+  }
+  openNameModal('名前変更', oldName, async (newName) => {
+    if (newName === oldName) return;
+    try{
+      if (rec.rev && canCloud()){
+        const mv = await storage.move(oldName + '.json', newName + '.json');
+        rec.rev = mv?.metadata?.rev || rec.rev; // moveでrevが変わる
+      }
+      rec.name = newName;
+      rec.doc.title = newName;
+      rec.updatedAt = new Date().toISOString();
+      if (!rec.rev) rec.dirty = true;
+      await idbTitlePut(rec);
+      await idbTitleDelete(oldName);
+      if (state.currentName === oldName){
+        state.currentName = newName;
+        boardTitleEl.textContent = newName;
+      }
+      refreshTitleList();
+    }catch(e){
+      alert('名前変更に失敗しました: ' + e.message);
+    }
+  }, oldName);
+}
+
+/* ---- 削除（ローカルとクラウド両方から） ---- */
+async function deleteTitle(it){
+  const name = it.name;
+  const hasRemote = !!it.remote || !!(it.rec && it.rec.rev);
+  if (hasRemote && !canCloud()){
+    alert('同期済みの作品の削除にはDropbox接続が必要です（オフライン中は不可）');
+    return;
+  }
+  const msg = hasRemote
+    ? `「${name}」を削除します。\nこの端末とDropboxの両方から削除され、元に戻せません。よろしいですか？`
+    : `「${name}」を削除します。元に戻せません。よろしいですか？`;
+  if (!confirm(msg)) return;
+  try{
+    if (hasRemote && canCloud()){
+      try{ await storage.delete(name + '.json'); }
+      catch(e){ if (!String(e.message).includes('not_found')) throw e; }
+    }
+    await idbTitleDelete(name);
+    refreshTitleList();
+  }catch(e){
+    alert('削除に失敗しました: ' + e.message);
+  }
+}
+
+/* ============================================================
+ * ビュー切替（タイトル一覧 ⇔ ボード）
+ * ============================================================ */
+async function openTitle(name){
+  let rec = await idbTitleGet(name);
+  if (!rec){
+    // クラウドのみの作品 → ダウンロードしてローカル化
+    if (!canCloud()) return;
+    try{
+      const text = await storage.load(name + '.json');
+      const meta = await dbxMeta(name);
+      const doc = normalizeDoc(JSON.parse(text));
+      doc.title = name;
+      rec = {
+        name, doc,
+        rev: meta ? meta.rev : null,
+        dirty: false,
+        updatedAt: doc.updatedAt || meta?.server_modified || new Date().toISOString(),
+        syncedAt: new Date().toISOString(),
+      };
+      await idbTitlePut(rec);
+    }catch(e){
+      alert('ダウンロードに失敗しました: ' + e.message);
+      return;
+    }
+  }
+  state.currentName = name;
+  state.rec = rec;
+  state.doc = rec.doc;
+  state.selectedId = null;
+  titleView.hidden = true;
+  boardView.hidden = false;
+  boardTitleEl.textContent = name;
+  renderAll();
+  updateSyncUI();
+  if (canCloud()) checkRemoteUpdate(name); // 開いた直後にクラウドの最新を確認（非同期）
+}
+
+// クラウド側が新しければダウンロードして置き換え。ローカルに未同期変更があれば競合
+async function checkRemoteUpdate(name){
+  try{
+    const meta = await dbxMeta(name);
+    if (!meta || state.currentName !== name) return;
+    const rec = state.rec;
+    if (meta.rev === rec.rev) return;
+    if (rec.dirty){ openConflict(name, rec, meta); return; }
+    const text = await storage.load(name + '.json');
+    if (state.currentName !== name) return;
+    rec.doc = normalizeDoc(JSON.parse(text));
+    rec.doc.title = name;
+    rec.rev = meta.rev;
+    rec.updatedAt = rec.doc.updatedAt || new Date().toISOString();
+    rec.syncedAt = new Date().toISOString();
+    await idbTitlePut(rec);
+    state.doc = rec.doc;
+    deselect();
+    renderAll();
+    updateSyncUI();
+  }catch(e){
+    console.warn('[sync] 最新確認に失敗:', e);
+  }
+}
+
+async function showTitleView(){
+  // ボードを離れる前に編集状態を閉じて保存・同期をフラッシュ
+  commitTitleEdit();
+  cancelPlacing();
+  closeMemoModal(false);
+  deselect();
+  if (saveTimer) await flushSave();
+  const name = state.currentName;
+  state.currentName = null;
+  state.rec = null;
+  boardView.hidden = true;
+  titleView.hidden = false;
+  await refreshTitleList();
+  if (name) syncNow(name); // 裏でアップロード（fire and forget）
+}
+backBtn.addEventListener('click', showTitleView);
+
 /* ---------- 起動 ---------- */
 (async function init(){
   try{
-    const stored = await idbLoad();
-    state.doc = normalizeDoc(stored);
+    await openDB();
+    // マイグレーション: Phase 2までの単一ボードデータを「無題」として取り込む
+    const titles = await idbTitlesAll();
+    if (titles.length === 0){
+      const legacy = await idbLegacyLoad();
+      if (legacy){
+        const doc = normalizeDoc(legacy);
+        const now = new Date().toISOString();
+        doc.title = '無題';
+        doc.updatedAt = doc.updatedAt || now;
+        doc.device = doc.device || deviceId;
+        await idbTitlePut({
+          name: '無題', doc,
+          rev: null, dirty: true,
+          updatedAt: doc.updatedAt, syncedAt: null,
+        });
+        // 旧データ(docsストア)は万一に備えてそのまま残す（削除しない）
+      }
+    }
   }catch(err){
-    console.error('IndexedDBからの復元に失敗。初期状態で開始:', err);
-    state.doc = newDoc();
+    console.error('初期化エラー:', err);
   }
-  renderAll();
-  setIndicator('saved');
+  await refreshTitleList();
+  updateSyncUI();
 })();
 </script>
 </body>
