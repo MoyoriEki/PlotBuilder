@@ -96,7 +96,7 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
   touch-action: pan-x pan-y; /* 長押し前の指の移動はスクロールとして扱う */
   user-select: none;
   -webkit-user-select: none;
-  /* overflowはタイトル側でクリップ（マークバッジが角からはみ出すため） */
+  overflow: hidden;
 }
 .block-title{
   font-size: 13px;
@@ -104,8 +104,6 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
   line-height: 1.3;
   word-break: break-word;
   pointer-events: none; /* タップ判定はブロック本体で行う */
-  max-height: 100%;
-  overflow: hidden;
 }
 .block.selected{
   box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgba(0,0,0,.15);
@@ -252,171 +250,6 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
   color: #fff;
 }
 
-/* ---- マーク（★/フラッグ）バッジ ---- */
-.block-marks{
-  position: absolute;
-  top: -10px; left: -7px;
-  font-size: 16px;
-  line-height: 1;
-  pointer-events: none;
-  text-shadow: 0 1px 2px rgba(0,0,0,.3), 0 0 2px #fff;
-  letter-spacing: 1px;
-}
-.mark-star{ color: #f0b400; }
-.mark-flag{ color: #e04b3a; }
-
-/* メモありインジケータ（ブロック右下の小さな点） */
-.memo-dot{
-  position: absolute;
-  right: 5px; bottom: 5px;
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: .4;
-  pointer-events: none;
-}
-
-/* ---- メモポップオーバー ---- */
-#memoPop{
-  position: absolute;
-  z-index: 40;
-  width: max-content;
-  max-width: min(280px, 78vw);
-  background: #fffef6;
-  border: 1px solid #ddd6b8;
-  border-radius: 9px;
-  box-shadow: 0 5px 18px rgba(0,0,0,.18);
-  padding: 8px 10px;
-}
-#memoPop.readonly{ pointer-events: none; }
-#memoPop .memo-text{
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: #4c4735;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 190px;
-  overflow-y: auto;
-}
-#memoPop .memo-edit{
-  margin-top: 7px;
-  border: 1px solid #c9d2d9;
-  background: #fff;
-  border-radius: 7px;
-  padding: 4px 12px;
-  font-size: 12px;
-  font-family: inherit;
-  color: #55606a;
-  cursor: pointer;
-}
-#memoPop.readonly .memo-edit{ display: none; }
-
-/* ---- メモ編集モーダル ---- */
-#memoModal{
-  position: fixed;
-  inset: 0;
-  background: rgba(30, 36, 42, .38);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  z-index: 100;
-}
-#memoModal[hidden]{ display: none; }
-#memoModal .card{
-  background: #fff;
-  border-radius: 13px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.3);
-  width: min(500px, 100%);
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-#memoModal .card h2{
-  font-size: 14px;
-  font-weight: 700;
-  word-break: break-word;
-}
-#memoTa{
-  width: 100%;
-  min-height: 170px;
-  resize: vertical;
-  font: 13px/1.6 inherit;
-  font-family: inherit;
-  padding: 9px 10px;
-  border: 1px solid #c4ccd3;
-  border-radius: 8px;
-  outline-color: var(--accent);
-}
-#memoModal .btns{
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-#memoModal .btns button{
-  border-radius: 8px;
-  padding: 7px 16px;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  border: 1px solid #c4ccd3;
-  background: #fff;
-  color: #55606a;
-}
-#memoModal #memoSave{
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-/* ---- ツールバーの操作ボタン（マーク・メモ・コピー） ---- */
-#toolbar{ flex-wrap: wrap; justify-content: center; }
-.tbtn{
-  height: 30px;
-  min-width: 30px;
-  padding: 0 8px;
-  border-radius: 8px;
-  border: 1px solid #c9d2d9;
-  background: #fff;
-  color: #7b858e;
-  font-size: 14.5px;
-  font-family: inherit;
-  line-height: 1;
-  cursor: pointer;
-  flex: none;
-}
-.tbtn.active[data-mark="star"]{ color:#d99f00; border-color:#e6bb45; background:#fff8e2; }
-.tbtn.active[data-mark="flag"]{ color:#d0402f; border-color:#e08a7d; background:#fdeeec; }
-.tsep{
-  width: 1px;
-  height: 22px;
-  background: #dde3e8;
-  flex: none;
-}
-
-/* ---- コピー配置モードのヒント ---- */
-#placeHint{
-  position: fixed;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  background: #333a40;
-  color: #fff;
-  font-size: 12.5px;
-  border-radius: 12px;
-  padding: 9px 16px;
-  box-shadow: 0 6px 24px rgba(0,0,0,.25);
-  z-index: 60;
-  white-space: nowrap;
-}
-.block.placing-preview{
-  opacity: .75;
-  pointer-events: none;
-  z-index: 22;
-  box-shadow: 0 8px 20px rgba(0,0,0,.25);
-}
-
 /* ---- 色プリセット8色（方眼紙上で目に痛くない彩度 / 濃色文字） ---- */
 .color-green    { background:#c9ecb4; border-color:#93c47d; color:#2b5e1d; }
 .color-deepgreen{ background:#8cc498; border-color:#5a9e6f; color:#123c20; }
@@ -441,10 +274,6 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
     <div id="grid">
       <div id="ghost" hidden></div>
       <input id="titleInput" hidden autocomplete="off" enterkeyhint="done" placeholder="タイトル">
-      <div id="memoPop" hidden>
-        <div class="memo-text"></div>
-        <button class="memo-edit" type="button">メモを編集</button>
-      </div>
     </div>
     <div id="colCtl" class="edge-ctl">
       <button id="colPlus"  title="列を追加" aria-label="列を追加">＋</button>
@@ -458,29 +287,9 @@ header h1{ font-size: 15px; font-weight: 700; letter-spacing: .04em; }
 </div>
 
 <div id="toolbar" class="hidden">
-  <span id="tools" style="display:flex; gap:6px; align-items:center;">
-    <button id="starBtn" class="tbtn" data-mark="star" title="★マーク">★</button>
-    <button id="flagBtn" class="tbtn" data-mark="flag" title="フラッグ">⚑</button>
-    <button id="memoBtn" class="tbtn" title="メモを編集">メモ</button>
-    <button id="copyBtn" class="tbtn" title="ブロックをコピー">コピー</button>
-  </span>
-  <span class="tsep"></span>
-  <!-- 色スウォッチはJSで生成 -->
+  <!-- 色スウォッチはJSで生成（Phase 2 でコピー・マークがここに増える想定） -->
   <span id="swatches" style="display:flex; gap:8px;"></span>
   <button id="delBtn">削除</button>
-</div>
-
-<div id="placeHint" hidden>コピーの配置先をタップ / クリック（Escで中止）</div>
-
-<div id="memoModal" hidden>
-  <div class="card">
-    <h2 id="memoModalTitle">メモ</h2>
-    <textarea id="memoTa" placeholder="このブロックのメモ…"></textarea>
-    <div class="btns">
-      <button id="memoCancel" type="button">キャンセル</button>
-      <button id="memoSave" type="button">保存</button>
-    </div>
-  </div>
 </div>
 
 <script>
@@ -516,11 +325,10 @@ const SAVE_DEBOUNCE_MS = 1200;
 function genId(){ return 'blk-' + Math.random().toString(36).slice(2, 10); }
 
 function newDoc(){
-  // 縦長デフォルト（モバイル配慮の縦長ファースト方針。以降のUIも縦長を優先して設計する）
   return {
     version: 1,
     title: '無題',
-    boards: [{ id: 'board-1', grid: { cols: 6, rows: 12 }, blocks: [] }]
+    boards: [{ id: 'board-1', grid: { cols: 12, rows: 6 }, blocks: [] }]
   };
 }
 function newBlock(x, y){
@@ -534,7 +342,7 @@ function normalizeDoc(d){
   d.version = 1;
   d.title = typeof d.title === 'string' ? d.title : '無題';
   const bd = d.boards[0];
-  if (!bd.grid || !(bd.grid.cols >= 1) || !(bd.grid.rows >= 1)) bd.grid = { cols: 6, rows: 12 };
+  if (!bd.grid || !(bd.grid.cols >= 1) || !(bd.grid.rows >= 1)) bd.grid = { cols: 12, rows: 6 };
   bd.grid.cols = Math.min(MAX_COLS, Math.floor(bd.grid.cols));
   bd.grid.rows = Math.min(MAX_ROWS, Math.floor(bd.grid.rows));
   bd.blocks = (Array.isArray(bd.blocks) ? bd.blocks : []).map(b => ({
@@ -557,10 +365,7 @@ const state = {
   pending: null,   // pointerdown 済み・ドラッグ未確定のセッション
   drag: null,      // 移動ドラッグ中
   resize: null,    // リサイズ中
-  editing: null,   // タイトル編集中 { id }
-  memoEdit: null,  // メモ編集モーダル表示中 { id }
-  placing: null,   // コピーの配置先選択中 { proto, gx, gy, valid }
-  hoverId: null    // マウスホバー中のブロック（メモポップオーバー用）
+  editing: null    // タイトル編集中 { id }
 };
 let cell = 64;     // 1マスのpxサイズ（renderAllで再計算）
 window.__plotboard = state; // 動作確認・デバッグ用フック
@@ -574,10 +379,6 @@ const $ = id => document.getElementById(id);
 const scroller = $('scroller'), boardWrap = $('boardWrap'), gridEl = $('grid');
 const ghostEl = $('ghost'), titleInput = $('titleInput');
 const toolbarEl = $('toolbar'), swatchesEl = $('swatches'), delBtn = $('delBtn');
-const starBtn = $('starBtn'), flagBtn = $('flagBtn');
-const memoBtn = $('memoBtn'), copyBtn = $('copyBtn');
-const memoPop = $('memoPop'), memoModal = $('memoModal'), memoTa = $('memoTa');
-const placeHint = $('placeHint');
 const saveIndicator = $('saveIndicator'), saveText = $('saveText');
 const colPlus = $('colPlus'), colMinus = $('colMinus');
 const rowPlus = $('rowPlus'), rowMinus = $('rowMinus');
@@ -660,7 +461,6 @@ function computeCell(){
 }
 
 function renderAll(){
-  cancelPlacing(); // 構造変更・リサイズ時は配置モードを解除
   cell = computeCell();
   const g = board().grid;
   const gw = g.cols * cell, gh = g.rows * cell;
@@ -688,7 +488,6 @@ function renderAll(){
 
   updateEdgeControls();
   updateToolbar();
-  updateMemoPop();
 }
 
 function makeBlockEl(id){
@@ -696,26 +495,11 @@ function makeBlockEl(id){
   el.dataset.id = id;
   const title = document.createElement('div');
   title.className = 'block-title';
-  const marks = document.createElement('div');
-  marks.className = 'block-marks';
-  const dot = document.createElement('div');
-  dot.className = 'memo-dot';
   const handle = document.createElement('div');
   handle.className = 'handle';
-  el.append(title, marks, dot, handle);
+  el.append(title, handle);
   el.addEventListener('pointerdown', onBlockPointerDown);
   handle.addEventListener('pointerdown', onHandlePointerDown);
-  // PC: カーソルを合わせるとメモがポップオーバー表示
-  el.addEventListener('pointerenter', e => {
-    if (e.pointerType !== 'mouse') return;
-    state.hoverId = id;
-    updateMemoPop();
-  });
-  el.addEventListener('pointerleave', e => {
-    if (e.pointerType !== 'mouse') return;
-    if (state.hoverId === id) state.hoverId = null;
-    updateMemoPop();
-  });
   return el;
 }
 
@@ -729,18 +513,6 @@ function layoutBlock(b){
   el.style.width = (b.w * cell - 4) + 'px';
   el.style.height = (b.h * cell - 4) + 'px';
   el.querySelector('.block-title').textContent = b.title;
-  // マーク（★/フラッグ）バッジ
-  const marksEl = el.querySelector('.block-marks');
-  marksEl.textContent = '';
-  for (const m of b.marks){
-    const s = document.createElement('span');
-    if (m === 'star'){ s.className = 'mark-star'; s.textContent = '★'; }
-    else if (m === 'flag'){ s.className = 'mark-flag'; s.textContent = '⚑'; }
-    else continue;
-    marksEl.appendChild(s);
-  }
-  // メモありインジケータ
-  el.querySelector('.memo-dot').hidden = !b.memo;
 }
 
 /* ---------- 選択・ツールバー ---------- */
@@ -752,7 +524,6 @@ function select(id){
   if (id){ const b = getBlock(id); if (b) layoutBlock(b); }
   disarmDelete();
   updateToolbar();
-  updateMemoPop();
 }
 function deselect(){ select(null); }
 
@@ -779,157 +550,6 @@ function updateToolbar(){
   for (const s of swatchesEl.children){
     s.classList.toggle('active', s.dataset.color === b.color);
   }
-  starBtn.classList.toggle('active', b.marks.includes('star'));
-  flagBtn.classList.toggle('active', b.marks.includes('flag'));
-}
-
-/* ---------- マーク（★/フラッグ） ---------- */
-function toggleMark(kind){
-  const b = getBlock(state.selectedId);
-  if (!b) return;
-  const i = b.marks.indexOf(kind);
-  if (i >= 0) b.marks.splice(i, 1);
-  else b.marks.push(kind);
-  layoutBlock(b);
-  updateToolbar();
-  scheduleSave();
-}
-starBtn.addEventListener('click', () => toggleMark('star'));
-flagBtn.addEventListener('click', () => toggleMark('flag'));
-
-/* ---------- メモ ----------
- * PC: ホバーでポップオーバー表示（読み取り専用）
- * 選択中: ポップオーバー + 編集ボタン、ツールバーの「メモ」からも編集
- * 編集はモーダル（テキストエリアのみのシンプル構成・リッチエディタなし） */
-function updateMemoPop(){
-  const targetId = state.hoverId || state.selectedId;
-  const b = targetId ? getBlock(targetId) : null;
-  if (!b || !b.memo || state.drag || state.resize || state.placing ||
-      state.editing || state.memoEdit){
-    memoPop.hidden = true;
-    return;
-  }
-  const readonly = targetId !== state.selectedId;
-  memoPop.classList.toggle('readonly', readonly);
-  memoPop.querySelector('.memo-text').textContent = b.memo;
-  memoPop.dataset.id = b.id;
-  memoPop.hidden = false;
-  // ブロックの上に表示。入らなければ下に
-  const g = board().grid;
-  const left = clamp(b.x * cell, 0, Math.max(0, g.cols * cell - memoPop.offsetWidth - 4));
-  let top = b.y * cell - memoPop.offsetHeight - 9;
-  if (top < 2) top = (b.y + b.h) * cell + 9;
-  memoPop.style.left = left + 'px';
-  memoPop.style.top = top + 'px';
-}
-memoPop.addEventListener('pointerdown', e => e.stopPropagation());
-memoPop.querySelector('.memo-edit').addEventListener('click', () => {
-  openMemoModal(memoPop.dataset.id);
-});
-memoBtn.addEventListener('click', () => openMemoModal(state.selectedId));
-
-function openMemoModal(id){
-  const b = getBlock(id);
-  if (!b) return;
-  state.memoEdit = { id };
-  $('memoModalTitle').textContent = 'メモ: ' + (b.title || '無題');
-  memoTa.value = b.memo;
-  memoModal.hidden = false;
-  updateMemoPop();
-  memoTa.focus();
-}
-function closeMemoModal(save){
-  if (memoModal.hidden) return;
-  const ed = state.memoEdit;
-  state.memoEdit = null;
-  memoModal.hidden = true;
-  if (save && ed){
-    const b = getBlock(ed.id);
-    if (b && b.memo !== memoTa.value){
-      b.memo = memoTa.value;
-      layoutBlock(b);
-      scheduleSave();
-    }
-  }
-  updateMemoPop();
-}
-$('memoSave').addEventListener('click', () => closeMemoModal(true));
-$('memoCancel').addEventListener('click', () => closeMemoModal(false));
-memoModal.addEventListener('pointerdown', e => {
-  if (e.target === memoModal) closeMemoModal(false); // 背景タップで閉じる
-});
-memoTa.addEventListener('keydown', e => {
-  e.stopPropagation();
-  if (e.key === 'Escape') closeMemoModal(false);
-  else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) closeMemoModal(true);
-});
-
-/* ---------- コピー（複製直後は配置先選択モード） ---------- */
-let placingEl = null;
-copyBtn.addEventListener('click', () => {
-  const src = getBlock(state.selectedId);
-  if (!src || state.placing) return;
-  const proto = JSON.parse(JSON.stringify(src)); // メモ・色・マーク込みで複製
-  proto.id = genId();
-  deselect();
-  state.placing = { proto, gx: proto.x, gy: proto.y, valid: false };
-  placingEl = document.createElement('div');
-  placingEl.className = 'block placing-preview color-' + proto.color;
-  const t = document.createElement('div');
-  t.className = 'block-title';
-  t.textContent = proto.title;
-  placingEl.appendChild(t);
-  placingEl.style.left = (proto.x * cell + 2) + 'px';
-  placingEl.style.top = (proto.y * cell + 2) + 'px';
-  placingEl.style.width = (proto.w * cell - 4) + 'px';
-  placingEl.style.height = (proto.h * cell - 4) + 'px';
-  gridEl.appendChild(placingEl);
-  showGhost(proto.x, proto.y, proto.w, proto.h, false); // 元位置は埋まっているので赤
-  placeHint.hidden = false;
-  updateMemoPop();
-});
-
-function movePlacing(clientX, clientY){
-  const p = state.placing;
-  if (!p) return;
-  const gr = gridEl.getBoundingClientRect();
-  const g = board().grid;
-  const gx = clamp(Math.round((clientX - gr.left) / cell - p.proto.w / 2), 0, g.cols - p.proto.w);
-  const gy = clamp(Math.round((clientY - gr.top) / cell - p.proto.h / 2), 0, g.rows - p.proto.h);
-  p.gx = gx; p.gy = gy;
-  p.valid = placementValid(gx, gy, p.proto.w, p.proto.h, null);
-  placingEl.style.left = (gx * cell + 2) + 'px';
-  placingEl.style.top = (gy * cell + 2) + 'px';
-  showGhost(gx, gy, p.proto.w, p.proto.h, p.valid);
-}
-
-function cancelPlacing(){
-  if (!state.placing) return;
-  state.placing = null;
-  placingEl?.remove();
-  placingEl = null;
-  hideGhost();
-  placeHint.hidden = true;
-}
-
-function finishPlacing(e){
-  const p = state.placing;
-  const gr = gridEl.getBoundingClientRect();
-  const inside = e.clientX >= gr.left - 8 && e.clientX <= gr.right + 8 &&
-                 e.clientY >= gr.top - 8 && e.clientY <= gr.bottom + 8;
-  if (!inside){ cancelPlacing(); return; } // グリッド外タップで中止
-  movePlacing(e.clientX, e.clientY);
-  if (!p.valid) return; // 置けない位置 → 赤表示のままモード継続
-  const nb = { ...p.proto, x: p.gx, y: p.gy };
-  cancelPlacing();
-  blocks().push(nb);
-  const el = makeBlockEl(nb.id);
-  blockEls.set(nb.id, el);
-  gridEl.appendChild(el);
-  layoutBlock(nb);
-  select(nb.id);
-  updateEdgeControls();
-  scheduleSave();
 }
 
 /* 削除は undo が無いため2度押し方式（誤削除防止） */
@@ -954,10 +574,8 @@ delBtn.addEventListener('click', () => {
   blockEls.get(b.id)?.remove();
   blockEls.delete(b.id);
   state.selectedId = null;
-  if (state.hoverId === b.id) state.hoverId = null;
   updateToolbar();
   updateEdgeControls();
-  updateMemoPop();
   scheduleSave();
 });
 
@@ -999,7 +617,7 @@ function hideGhost(){ ghostEl.hidden = true; }
 
 /* ---------- ブロックのドラッグ移動 ---------- */
 function onBlockPointerDown(e){
-  if (state.drag || state.resize || state.pending || state.placing) return;
+  if (state.drag || state.resize || state.pending) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   const id = e.currentTarget.dataset.id;
   commitTitleEdit();
@@ -1035,7 +653,6 @@ function startDrag(s){
   try{ el.setPointerCapture(s.pointerId); }catch(_){}
   el.classList.add('dragging');
   select(s.id);
-  updateMemoPop(); // ドラッグ中はポップオーバーを隠す
   showGhost(b.x, b.y, b.w, b.h, true);
   if (navigator.vibrate) navigator.vibrate(10);
 }
@@ -1079,7 +696,6 @@ function endDrag(cancelled){
   layoutBlock(b);
   setTimeout(() => el.classList.remove('settle'), 160);
   updateEdgeControls();
-  updateMemoPop();
 }
 
 /* ---------- リサイズ（右下ハンドル） ---------- */
@@ -1093,7 +709,6 @@ function onHandlePointerDown(e){
   commitTitleEdit();
   state.resize = { id, pointerId: e.pointerId, w: b.w, h: b.h, valid: true, moved: false };
   try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
-  updateMemoPop();
   showGhost(b.x, b.y, b.w, b.h, true);
 }
 
@@ -1131,12 +746,10 @@ function endResize(cancelled){
   layoutBlock(b);
   setTimeout(() => el.classList.remove('settle'), 160);
   updateEdgeControls();
-  updateMemoPop();
 }
 
 /* ---------- ポインタの共通ハンドラ ---------- */
 window.addEventListener('pointermove', e => {
-  if (state.placing){ movePlacing(e.clientX, e.clientY); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ resizeMove(e); return; }
   if (state.drag && e.pointerId === state.drag.pointerId){ dragMove(e); return; }
   const s = state.pending;
@@ -1153,7 +766,6 @@ window.addEventListener('pointermove', e => {
 });
 
 window.addEventListener('pointerup', e => {
-  if (state.placing){ finishPlacing(e); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ endResize(false); return; }
   if (state.drag && e.pointerId === state.drag.pointerId){ endDrag(false); return; }
   const s = state.pending;
@@ -1177,9 +789,9 @@ window.addEventListener('pointercancel', e => {
   }
 });
 
-// ドラッグ/リサイズ/コピー配置の確定後にネイティブスクロールが割り込むのを防ぐ
+// ドラッグ/リサイズ確定後にネイティブスクロールが割り込むのを防ぐ
 window.addEventListener('touchmove', e => {
-  if (state.drag || state.resize || state.placing) e.preventDefault();
+  if (state.drag || state.resize) e.preventDefault();
 }, { passive: false });
 
 // タッチ長押しのコンテキストメニューを抑止
@@ -1189,7 +801,7 @@ boardWrap.addEventListener('contextmenu', e => e.preventDefault());
 let lastTap = null;
 gridEl.addEventListener('pointerup', e => {
   if (e.target !== gridEl) return;
-  if (state.drag || state.resize || state.placing) return;
+  if (state.drag || state.resize) return;
   const now = performance.now();
   if (lastTap && now - lastTap.t < TAP_DOUBLE_MS &&
       Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < TAP_DOUBLE_PX){
@@ -1237,7 +849,6 @@ function startTitleEdit(id){
   titleInput.hidden = false;
   titleInput.focus();
   titleInput.select();
-  updateMemoPop();
 }
 function commitTitleEdit(){
   if (!state.editing) return;
@@ -1249,12 +860,10 @@ function commitTitleEdit(){
     layoutBlock(b);
     scheduleSave();
   }
-  updateMemoPop();
 }
 function cancelTitleEdit(){
   state.editing = null;
   titleInput.hidden = true;
-  updateMemoPop();
 }
 titleInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') commitTitleEdit();
@@ -1264,10 +873,7 @@ titleInput.addEventListener('blur', commitTitleEdit);
 titleInput.addEventListener('pointerdown', e => e.stopPropagation());
 
 document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  if (state.memoEdit) closeMemoModal(false);
-  else if (state.placing) cancelPlacing();
-  else if (!state.editing) deselect();
+  if (e.key === 'Escape' && !state.editing) deselect();
 });
 
 /* ---------- リサイズ・回転対応 ---------- */
