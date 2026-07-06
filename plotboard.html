@@ -349,9 +349,11 @@ header h1{
   z-index: 21;
 }
 .block.selected .handle{ display: block; }
+/* 複数選択中はリサイズ不可（ハンドルを出さない） */
+.block.selected.multi .handle{ display: none; }
 
-/* 配置可否ゴースト */
-#ghost{
+/* 配置可否ゴースト（複数ブロック移動時は動的に増える） */
+.ghost{
   position: absolute;
   border: 2px dashed #4f9e58;
   background: rgba(110, 200, 120, .16);
@@ -359,9 +361,19 @@ header h1{
   pointer-events: none;
   z-index: 6;
 }
-#ghost.invalid{
+.ghost.invalid{
   border-color: var(--danger);
   background: rgba(220, 70, 70, .16);
+}
+
+/* 範囲選択のラバーバンド */
+#marquee{
+  position: absolute;
+  border: 1.5px dashed var(--accent);
+  background: rgba(74, 144, 217, .13);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 7;
 }
 
 /* タイトルのインライン編集 */
@@ -604,6 +616,7 @@ header h1{
   cursor: pointer;
   flex: none;
 }
+.tbtn:disabled{ opacity: .35; cursor: default; }
 .tbtn.active[data-mark="star"]{ color:#d99f00; border-color:#e6bb45; background:#fff8e2; }
 .tbtn.active[data-mark="flag"]{ color:#d0402f; border-color:#e08a7d; background:#fdeeec; }
 .tsep{
@@ -668,7 +681,7 @@ header h1{
 <header>
   <button id="backBtn" type="button" title="作品一覧へ戻る">←</button>
   <h1 id="boardTitle">無題</h1>
-  <span class="hint">空きマスをダブルクリック / ダブルタップでブロック作成。モバイルは長押しでドラッグ</span>
+  <span class="hint">空きマスをダブルクリックでブロック作成、空きマスからドラッグで範囲選択。モバイルは長押しでドラッグ / 範囲選択</span>
   <span id="saveIndicator"><span class="dot"></span><span id="saveText">保存済み</span></span>
   <button id="syncBtn" type="button" title="今すぐ同期" hidden>⟳</button>
 </header>
@@ -676,7 +689,8 @@ header h1{
 <div id="scroller">
   <div id="boardWrap">
     <div id="grid">
-      <div id="ghost" hidden></div>
+      <div id="ghost" class="ghost" hidden></div>
+      <div id="marquee" hidden></div>
       <input id="titleInput" hidden autocomplete="off" enterkeyhint="done" placeholder="タイトル">
       <div id="memoPop" hidden>
         <div class="memo-text"></div>
@@ -836,9 +850,11 @@ const state = {
   doc: newDoc(),
   currentName: null, // 開いている作品名（titlesストアのキー）
   rec: null,         // 現在の作品レコード { name, doc, rev, dirty, updatedAt, syncedAt }
-  selectedId: null,
+  selIds: [],      // 選択中ブロックID（範囲選択で複数になる）
   pending: null,   // pointerdown 済み・ドラッグ未確定のセッション
-  drag: null,      // 移動ドラッグ中
+  pendingMarquee: null, // 空きマスで pointerdown 済み・範囲選択未確定
+  marquee: null,   // 範囲選択（ラバーバンド）中
+  drag: null,      // 移動ドラッグ中（複数選択時はグループごと）
   resize: null,    // リサイズ中
   editing: null,   // タイトル編集中 { id }
   memoEdit: null,  // メモ編集モーダル表示中 { id }
@@ -855,7 +871,7 @@ const getBlock = id => blocks().find(b => b.id === id);
 /* ---------- DOM参照 ---------- */
 const $ = id => document.getElementById(id);
 const scroller = $('scroller'), boardWrap = $('boardWrap'), gridEl = $('grid');
-const ghostEl = $('ghost'), titleInput = $('titleInput');
+const ghostEl = $('ghost'), marqueeEl = $('marquee'), titleInput = $('titleInput');
 const toolbarEl = $('toolbar'), swatchesEl = $('swatches'), delBtn = $('delBtn');
 const starBtn = $('starBtn'), flagBtn = $('flagBtn');
 const memoBtn = $('memoBtn'), copyBtn = $('copyBtn');
@@ -1065,8 +1081,10 @@ function makeBlockEl(id){
 function layoutBlock(b){
   const el = blockEls.get(b.id);
   if (!el) return;
+  const sel = state.selIds.includes(b.id);
   el.className = 'block color-' + b.color +
-    (state.selectedId === b.id ? ' selected' : '');
+    (sel ? ' selected' : '') +
+    (sel && state.selIds.length > 1 ? ' multi' : '');
   el.style.left = (b.x * cell + 2) + 'px';
   el.style.top = (b.y * cell + 2) + 'px';
   el.style.width = (b.w * cell - 4) + 'px';
@@ -1089,27 +1107,31 @@ function layoutBlock(b){
 }
 
 /* ---------- 選択・ツールバー ---------- */
-function select(id){
-  if (state.selectedId === id) return;
-  const prev = state.selectedId;
-  state.selectedId = id;
-  if (prev){ const pb = getBlock(prev); if (pb) layoutBlock(pb); }
-  if (id){ const b = getBlock(id); if (b) layoutBlock(b); }
+const selectedBlocks = () => state.selIds.map(getBlock).filter(Boolean);
+const singleSelId = () => state.selIds.length === 1 ? state.selIds[0] : null;
+function setSelection(ids){
+  const prev = state.selIds;
+  if (prev.length === ids.length && prev.every((v, i) => v === ids[i])) return;
+  state.selIds = [...ids];
+  for (const id of new Set([...prev, ...ids])){
+    const b = getBlock(id);
+    if (b) layoutBlock(b);
+  }
   disarmDelete();
   updateToolbar();
   updateMemoPop();
 }
-function deselect(){ select(null); }
+function select(id){ setSelection(id ? [id] : []); }
+function deselect(){ setSelection([]); }
 
 for (const c of COLOR_IDS){
   const btn = document.createElement('button');
   btn.className = 'swatch color-' + c;
   btn.title = COLOR_LABELS[c];
   btn.addEventListener('click', () => {
-    const b = getBlock(state.selectedId);
-    if (!b) return;
-    b.color = c;
-    layoutBlock(b);
+    const sel = selectedBlocks();
+    if (!sel.length) return;
+    for (const b of sel){ b.color = c; layoutBlock(b); }
     updateToolbar();
     scheduleSave();
   });
@@ -1118,24 +1140,31 @@ for (const c of COLOR_IDS){
 }
 
 function updateToolbar(){
-  const b = getBlock(state.selectedId);
-  toolbarEl.classList.toggle('hidden', !b);
-  if (!b) return;
+  const sel = selectedBlocks();
+  // 範囲選択のドラッグ中はまだ出さない（確定時に表示）
+  toolbarEl.classList.toggle('hidden', !sel.length || !!state.marquee);
+  if (!sel.length) return;
   for (const s of swatchesEl.children){
-    s.classList.toggle('active', s.dataset.color === b.color);
+    s.classList.toggle('active', sel.every(b => b.color === s.dataset.color));
   }
-  starBtn.classList.toggle('active', b.marks.includes('star'));
-  flagBtn.classList.toggle('active', b.marks.includes('flag'));
+  starBtn.classList.toggle('active', sel.every(b => b.marks.includes('star')));
+  flagBtn.classList.toggle('active', sel.every(b => b.marks.includes('flag')));
+  memoBtn.disabled = sel.length !== 1; // メモは単一選択のみ
+  if (!delBtn.classList.contains('armed')) delBtn.textContent = delLabel();
 }
 
-/* ---------- マーク（★/フラッグ） ---------- */
+/* ---------- マーク（★/フラッグ） ----------
+ * 複数選択時: 全員が付いていれば全員から外す、そうでなければ全員に付ける */
 function toggleMark(kind){
-  const b = getBlock(state.selectedId);
-  if (!b) return;
-  const i = b.marks.indexOf(kind);
-  if (i >= 0) b.marks.splice(i, 1);
-  else b.marks.push(kind);
-  layoutBlock(b);
+  const sel = selectedBlocks();
+  if (!sel.length) return;
+  const allHave = sel.every(b => b.marks.includes(kind));
+  for (const b of sel){
+    const i = b.marks.indexOf(kind);
+    if (allHave) b.marks.splice(i, 1);
+    else if (i < 0) b.marks.push(kind);
+    layoutBlock(b);
+  }
   updateToolbar();
   scheduleSave();
 }
@@ -1147,12 +1176,13 @@ flagBtn.addEventListener('click', () => toggleMark('flag'));
  * 選択中: ポップオーバー + 編集ボタン、ツールバーの「メモ」からも編集
  * 編集はモーダル（テキストエリアのみのシンプル構成・リッチエディタなし） */
 function updateMemoPop(){
-  const targetId = state.hoverId || state.selectedId;
+  const selId = singleSelId(); // ポップオーバーは単一選択時のみ
+  const targetId = state.hoverId || selId;
   const b = targetId ? getBlock(targetId) : null;
-  const readonly = !!b && targetId !== state.selectedId;
+  const readonly = !!b && targetId !== selId;
   // ホバー（読み取り専用）はメモがある時だけ。選択中はメモが無くても
   // 「メモを編集」ボタンを出すため常に表示する
-  if (!b || state.drag || state.resize || state.placing ||
+  if (!b || state.drag || state.resize || state.placing || state.marquee ||
       state.editing || state.memoEdit || (readonly && !b.memo)){
     memoPop.hidden = true;
     return;
@@ -1175,7 +1205,7 @@ memoPop.addEventListener('pointerdown', e => e.stopPropagation());
 memoPop.querySelector('.memo-edit').addEventListener('click', () => {
   openMemoModal(memoPop.dataset.id);
 });
-memoBtn.addEventListener('click', () => openMemoModal(state.selectedId));
+memoBtn.addEventListener('click', () => openMemoModal(singleSelId()));
 
 function openMemoModal(id){
   const b = getBlock(id);
@@ -1213,33 +1243,47 @@ memoTa.addEventListener('keydown', e => {
   else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) closeMemoModal(true);
 });
 
-/* ---------- コピー（複製直後は配置先選択モード） ---------- */
-let placingEl = null;
+/* ---------- コピー（複製直後は配置先選択モード） ----------
+ * 複数選択時は相対位置を保ったままグループごと複製・配置する */
+let placingEls = [];
 copyBtn.addEventListener('click', () => {
-  const src = getBlock(state.selectedId);
-  if (!src || state.placing) return;
-  const proto = JSON.parse(JSON.stringify(src)); // メモ・色・マーク込みで複製
-  proto.id = genId();
+  const sel = selectedBlocks();
+  if (!sel.length || state.placing) return;
+  const minX = Math.min(...sel.map(b => b.x));
+  const minY = Math.min(...sel.map(b => b.y));
+  // items: グループ左上を原点とした相対座標(rx, ry)つきの複製
+  const items = sel.map(src => {
+    const proto = JSON.parse(JSON.stringify(src)); // メモ・色・マーク込みで複製
+    proto.id = genId();
+    return { proto, rx: src.x - minX, ry: src.y - minY };
+  });
+  const w = Math.max(...sel.map(b => b.x + b.w)) - minX;
+  const h = Math.max(...sel.map(b => b.y + b.h)) - minY;
   deselect();
-  state.placing = { proto, gx: proto.x, gy: proto.y, valid: false };
-  placingEl = document.createElement('div');
-  placingEl.className = 'block placing-preview color-' + proto.color;
-  const pbody = document.createElement('div');
-  pbody.className = 'block-body';
-  const t = document.createElement('div');
-  t.className = 'block-title';
-  t.textContent = proto.title;
-  const pm = document.createElement('div');
-  pm.className = 'block-memo';
-  pm.textContent = proto.memo;
-  pbody.append(t, pm);
-  placingEl.appendChild(pbody);
-  placingEl.style.left = (proto.x * cell + 2) + 'px';
-  placingEl.style.top = (proto.y * cell + 2) + 'px';
-  placingEl.style.width = (proto.w * cell - 4) + 'px';
-  placingEl.style.height = (proto.h * cell - 4) + 'px';
-  gridEl.appendChild(placingEl);
-  showGhost(proto.x, proto.y, proto.w, proto.h, false); // 元位置は埋まっているので赤
+  state.placing = { items, w, h, gx: minX, gy: minY, valid: false };
+  for (const it of items){
+    const el = document.createElement('div');
+    el.className = 'block placing-preview color-' + it.proto.color;
+    const pbody = document.createElement('div');
+    pbody.className = 'block-body';
+    const t = document.createElement('div');
+    t.className = 'block-title';
+    t.textContent = it.proto.title;
+    const pm = document.createElement('div');
+    pm.className = 'block-memo';
+    pm.textContent = it.proto.memo;
+    pbody.append(t, pm);
+    el.appendChild(pbody);
+    el.style.left = ((minX + it.rx) * cell + 2) + 'px';
+    el.style.top = ((minY + it.ry) * cell + 2) + 'px';
+    el.style.width = (it.proto.w * cell - 4) + 'px';
+    el.style.height = (it.proto.h * cell - 4) + 'px';
+    gridEl.appendChild(el);
+    placingEls.push(el);
+  }
+  // 元位置は埋まっているので赤
+  showGhosts(items.map(it => ({ x: minX + it.rx, y: minY + it.ry,
+                                w: it.proto.w, h: it.proto.h })), false);
   placeHint.hidden = false;
   updateMemoPop();
 });
@@ -1249,20 +1293,24 @@ function movePlacing(clientX, clientY){
   if (!p) return;
   const gr = gridEl.getBoundingClientRect();
   const g = board().grid;
-  const gx = clamp(Math.round((clientX - gr.left) / cell - p.proto.w / 2), 0, g.cols - p.proto.w);
-  const gy = clamp(Math.round((clientY - gr.top) / cell - p.proto.h / 2), 0, g.rows - p.proto.h);
+  const gx = clamp(Math.round((clientX - gr.left) / cell - p.w / 2), 0, g.cols - p.w);
+  const gy = clamp(Math.round((clientY - gr.top) / cell - p.h / 2), 0, g.rows - p.h);
   p.gx = gx; p.gy = gy;
-  p.valid = placementValid(gx, gy, p.proto.w, p.proto.h, null);
-  placingEl.style.left = (gx * cell + 2) + 'px';
-  placingEl.style.top = (gy * cell + 2) + 'px';
-  showGhost(gx, gy, p.proto.w, p.proto.h, p.valid);
+  p.valid = p.items.every(it =>
+    placementValid(gx + it.rx, gy + it.ry, it.proto.w, it.proto.h, null));
+  p.items.forEach((it, i) => {
+    placingEls[i].style.left = ((gx + it.rx) * cell + 2) + 'px';
+    placingEls[i].style.top = ((gy + it.ry) * cell + 2) + 'px';
+  });
+  showGhosts(p.items.map(it => ({ x: gx + it.rx, y: gy + it.ry,
+                                  w: it.proto.w, h: it.proto.h })), p.valid);
 }
 
 function cancelPlacing(){
   if (!state.placing) return;
   state.placing = null;
-  placingEl?.remove();
-  placingEl = null;
+  for (const el of placingEls) el.remove();
+  placingEls = [];
   hideGhost();
   placeHint.hidden = true;
 }
@@ -1275,41 +1323,49 @@ function finishPlacing(e){
   if (!inside){ cancelPlacing(); return; } // グリッド外タップで中止
   movePlacing(e.clientX, e.clientY);
   if (!p.valid) return; // 置けない位置 → 赤表示のままモード継続
-  const nb = { ...p.proto, x: p.gx, y: p.gy };
+  const nbs = p.items.map(it => ({ ...it.proto, x: p.gx + it.rx, y: p.gy + it.ry }));
   cancelPlacing();
-  blocks().push(nb);
-  const el = makeBlockEl(nb.id);
-  blockEls.set(nb.id, el);
-  gridEl.appendChild(el);
-  layoutBlock(nb);
-  select(nb.id);
+  for (const nb of nbs){
+    blocks().push(nb);
+    const el = makeBlockEl(nb.id);
+    blockEls.set(nb.id, el);
+    gridEl.appendChild(el);
+    layoutBlock(nb);
+  }
+  setSelection(nbs.map(nb => nb.id));
   updateEdgeControls();
   scheduleSave();
 }
 
-/* 削除は undo が無いため2度押し方式（誤削除防止） */
+/* 削除は undo が無いため2度押し方式（誤削除防止）。複数選択なら一括削除 */
 let delArmTimer = null;
+function delLabel(){
+  const n = state.selIds.length;
+  return n > 1 ? `削除 (${n})` : '削除';
+}
 function disarmDelete(){
   clearTimeout(delArmTimer); delArmTimer = null;
   delBtn.classList.remove('armed');
-  delBtn.textContent = '削除';
+  delBtn.textContent = delLabel();
 }
 delBtn.addEventListener('click', () => {
-  const b = getBlock(state.selectedId);
-  if (!b) return;
+  const sel = selectedBlocks();
+  if (!sel.length) return;
   if (!delBtn.classList.contains('armed')){
     delBtn.classList.add('armed');
-    delBtn.textContent = '本当に削除？';
+    delBtn.textContent = sel.length > 1 ? `${sel.length}個を削除？` : '本当に削除？';
     delArmTimer = setTimeout(disarmDelete, 2500);
     return;
   }
+  for (const b of sel){
+    const i = blocks().indexOf(b);
+    if (i >= 0) blocks().splice(i, 1);
+    blockEls.get(b.id)?.remove();
+    blockEls.delete(b.id);
+    if (state.hoverId === b.id) state.hoverId = null;
+  }
+  state.selIds = [];
   disarmDelete();
-  const i = blocks().indexOf(b);
-  if (i >= 0) blocks().splice(i, 1);
-  blockEls.get(b.id)?.remove();
-  blockEls.delete(b.id);
-  state.selectedId = null;
-  if (state.hoverId === b.id) state.hoverId = null;
   updateToolbar();
   updateEdgeControls();
   updateMemoPop();
@@ -1341,20 +1397,34 @@ rowMinus.addEventListener('click', () => {
   board().grid.rows--; renderAll(); scheduleSave();
 });
 
-/* ---------- ゴースト（配置可否のリアルタイム表示） ---------- */
-function showGhost(x, y, w, h, valid){
-  ghostEl.hidden = false;
-  ghostEl.classList.toggle('invalid', !valid);
-  ghostEl.style.left = (x * cell + 1) + 'px';
-  ghostEl.style.top = (y * cell + 1) + 'px';
-  ghostEl.style.width = (w * cell - 2) + 'px';
-  ghostEl.style.height = (h * cell - 2) + 'px';
+/* ---------- ゴースト（配置可否のリアルタイム表示） ----------
+ * 複数ブロックの移動・コピーに備えて要素をプールして使い回す */
+const ghostPool = [ghostEl];
+function showGhosts(rects, valid){
+  while (ghostPool.length < rects.length){
+    const g = document.createElement('div');
+    g.className = 'ghost';
+    gridEl.appendChild(g);
+    ghostPool.push(g);
+  }
+  ghostPool.forEach((g, i) => {
+    const r = rects[i];
+    if (!r){ g.hidden = true; return; }
+    g.hidden = false;
+    g.classList.toggle('invalid', !valid);
+    g.style.left = (r.x * cell + 1) + 'px';
+    g.style.top = (r.y * cell + 1) + 'px';
+    g.style.width = (r.w * cell - 2) + 'px';
+    g.style.height = (r.h * cell - 2) + 'px';
+  });
 }
-function hideGhost(){ ghostEl.hidden = true; }
+function showGhost(x, y, w, h, valid){ showGhosts([{ x, y, w, h }], valid); }
+function hideGhost(){ for (const g of ghostPool) g.hidden = true; }
 
 /* ---------- ブロックのドラッグ移動 ---------- */
 function onBlockPointerDown(e){
-  if (state.drag || state.resize || state.pending || state.placing) return;
+  if (state.drag || state.resize || state.pending || state.placing ||
+      state.marquee || state.pendingMarquee) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   const id = e.currentTarget.dataset.id;
   commitTitleEdit();
@@ -1382,16 +1452,25 @@ function startDrag(s){
   const b = getBlock(s.id);
   const el = blockEls.get(s.id);
   if (!b || !el) return;
+  // 複数選択中のブロックを掴んだ場合は選択グループ全体を一緒に動かす。
+  // members は掴んだブロック(アンカー)からの相対グリッド座標を持つ
+  const groupIds = (state.selIds.length > 1 && state.selIds.includes(s.id))
+    ? [...state.selIds] : [s.id];
+  if (groupIds.length === 1) select(s.id);
   state.drag = {
     id: s.id, pointerId: s.pointerId,
     grabDX: s.grabDX, grabDY: s.grabDY,
+    members: groupIds.map(id => {
+      const mb = getBlock(id);
+      return { id, rx: mb.x - b.x, ry: mb.y - b.y, w: mb.w, h: mb.h };
+    }),
     gx: b.x, gy: b.y, valid: true, moved: false
   };
   try{ el.setPointerCapture(s.pointerId); }catch(_){}
-  el.classList.add('dragging');
-  select(s.id);
+  for (const m of state.drag.members) blockEls.get(m.id)?.classList.add('dragging');
   updateMemoPop(); // ドラッグ中はポップオーバーを隠す
-  showGhost(b.x, b.y, b.w, b.h, true);
+  showGhosts(state.drag.members.map(m =>
+    ({ x: b.x + m.rx, y: b.y + m.ry, w: m.w, h: m.h })), true);
   if (navigator.vibrate) navigator.vibrate(10);
 }
 
@@ -1402,17 +1481,33 @@ function dragMove(e){
   const gr = gridEl.getBoundingClientRect();
   const px = e.clientX - gr.left - d.grabDX;
   const py = e.clientY - gr.top - d.grabDY;
-  el.style.left = px + 'px';
-  el.style.top = py + 'px';
+  for (const m of d.members){
+    const mel = blockEls.get(m.id);
+    if (!mel) continue;
+    mel.style.left = (px + m.rx * cell) + 'px';
+    mel.style.top = (py + m.ry * cell) + 'px';
+  }
+  // グループ全員が盤内に収まる範囲にアンカーの移動先をクランプ
   const g = board().grid;
-  const gx = clamp(Math.round((px - 2) / cell), 0, g.cols - b.w);
-  const gy = clamp(Math.round((py - 2) / cell), 0, g.rows - b.h);
+  let gxLo = 0, gxHi = g.cols, gyLo = 0, gyHi = g.rows;
+  for (const m of d.members){
+    gxLo = Math.max(gxLo, -m.rx);
+    gxHi = Math.min(gxHi, g.cols - m.rx - m.w);
+    gyLo = Math.max(gyLo, -m.ry);
+    gyHi = Math.min(gyHi, g.rows - m.ry - m.h);
+  }
+  const gx = clamp(Math.round((px - 2) / cell), gxLo, gxHi);
+  const gy = clamp(Math.round((py - 2) / cell), gyLo, gyHi);
   d.moved = true;
   if (gx !== d.gx || gy !== d.gy || d.valid === null){
     d.gx = gx; d.gy = gy;
-    d.valid = placementValid(gx, gy, b.w, b.h, b.id);
-    showGhost(gx, gy, b.w, b.h, d.valid);
-    el.classList.toggle('invalid', !d.valid);
+    const idSet = new Set(d.members.map(m => m.id));
+    d.valid = d.members.every(m =>
+      !blocks().some(o => !idSet.has(o.id) &&
+        rectsOverlap({ x: gx + m.rx, y: gy + m.ry, w: m.w, h: m.h }, o)));
+    showGhosts(d.members.map(m =>
+      ({ x: gx + m.rx, y: gy + m.ry, w: m.w, h: m.h })), d.valid);
+    for (const m of d.members) blockEls.get(m.id)?.classList.toggle('invalid', !d.valid);
   }
 }
 
@@ -1424,15 +1519,18 @@ function endDrag(cancelled){
   hideGhost();
   if (!b || !el) return;
   try{ el.releasePointerCapture(d.pointerId); }catch(_){}
-  el.classList.remove('dragging', 'invalid');
-  if (!cancelled && d.moved && d.valid && (d.gx !== b.x || d.gy !== b.y)){
-    b.x = d.gx; b.y = d.gy;
-    scheduleSave();
-  }
+  const apply = !cancelled && d.moved && d.valid && (d.gx !== b.x || d.gy !== b.y);
   // 確定位置（不可なら元位置）へスナップして戻す
-  el.classList.add('settle');
-  layoutBlock(b);
-  setTimeout(() => el.classList.remove('settle'), 160);
+  for (const m of d.members){
+    const mb = getBlock(m.id), mel = blockEls.get(m.id);
+    if (!mb || !mel) continue;
+    mel.classList.remove('dragging', 'invalid');
+    if (apply){ mb.x = d.gx + m.rx; mb.y = d.gy + m.ry; }
+    mel.classList.add('settle');
+    layoutBlock(mb);
+    setTimeout(() => mel.classList.remove('settle'), 160);
+  }
+  if (apply) scheduleSave();
   updateEdgeControls();
   updateMemoPop();
 }
@@ -1489,11 +1587,81 @@ function endResize(cancelled){
   updateMemoPop();
 }
 
+/* ---------- 範囲選択（空きマスからのドラッグで複数選択） ----------
+ * PC: 空きマスから DRAG_START_PX 以上ドラッグで開始
+ * モバイル: 空きマス長押しで開始（ブロックの長押しドラッグと同じ流儀。
+ *           長押し前の指の移動はスクロールに委ねる） */
+gridEl.addEventListener('pointerdown', e => {
+  if (e.target !== gridEl) return; // ブロック上はブロック側のハンドラに任せる
+  if (state.drag || state.resize || state.pending || state.placing ||
+      state.marquee || state.pendingMarquee) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const s = {
+    pointerId: e.pointerId,
+    isTouch: e.pointerType !== 'mouse',
+    startX: e.clientX, startY: e.clientY,
+    lpTimer: null
+  };
+  state.pendingMarquee = s;
+  if (s.isTouch){
+    s.lpTimer = setTimeout(() => {
+      if (state.pendingMarquee === s) startMarquee(s);
+    }, LONG_PRESS_MS);
+  }
+});
+
+function startMarquee(s){
+  state.pendingMarquee = null;
+  commitTitleEdit();
+  deselect();
+  state.marquee = { pointerId: s.pointerId, startX: s.startX, startY: s.startY };
+  try{ gridEl.setPointerCapture(s.pointerId); }catch(_){}
+  const gr = gridEl.getBoundingClientRect();
+  marqueeEl.style.left = (s.startX - gr.left) + 'px';
+  marqueeEl.style.top = (s.startY - gr.top) + 'px';
+  marqueeEl.style.width = '0px';
+  marqueeEl.style.height = '0px';
+  marqueeEl.hidden = false;
+  updateMemoPop();
+  if (navigator.vibrate) navigator.vibrate(10);
+}
+
+function marqueeMove(e){
+  const m = state.marquee;
+  const gr = gridEl.getBoundingClientRect();
+  const g = board().grid;
+  const x1 = clamp(Math.min(m.startX, e.clientX) - gr.left, 0, g.cols * cell);
+  const y1 = clamp(Math.min(m.startY, e.clientY) - gr.top, 0, g.rows * cell);
+  const x2 = clamp(Math.max(m.startX, e.clientX) - gr.left, 0, g.cols * cell);
+  const y2 = clamp(Math.max(m.startY, e.clientY) - gr.top, 0, g.rows * cell);
+  marqueeEl.style.left = x1 + 'px';
+  marqueeEl.style.top = y1 + 'px';
+  marqueeEl.style.width = (x2 - x1) + 'px';
+  marqueeEl.style.height = (y2 - y1) + 'px';
+  // 矩形にピクセル単位で重なったブロックを選択（ライブ更新）
+  const rect = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+  setSelection(blocks().filter(b => rectsOverlap(rect,
+    { x: b.x * cell, y: b.y * cell, w: b.w * cell, h: b.h * cell }
+  )).map(b => b.id));
+}
+
+function endMarquee(cancelled){
+  const m = state.marquee;
+  if (!m) return;
+  state.marquee = null;
+  marqueeEl.hidden = true;
+  try{ gridEl.releasePointerCapture(m.pointerId); }catch(_){}
+  if (cancelled) deselect();
+  updateToolbar(); // 選択があればここで初めてツールバーを出す
+  updateMemoPop();
+}
+
 /* ---------- ポインタの共通ハンドラ ---------- */
 window.addEventListener('pointermove', e => {
   if (state.placing){ movePlacing(e.clientX, e.clientY); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ resizeMove(e); return; }
   if (state.drag && e.pointerId === state.drag.pointerId){ dragMove(e); return; }
+  if (state.marquee && e.pointerId === state.marquee.pointerId){ marqueeMove(e); return; }
   const s = state.pending;
   if (s && e.pointerId === s.pointerId){
     const dist = Math.hypot(e.clientX - s.startX, e.clientY - s.startY);
@@ -1504,6 +1672,18 @@ window.addEventListener('pointermove', e => {
       startDrag(s);
       dragMove(e);
     }
+    return;
+  }
+  const pm = state.pendingMarquee;
+  if (pm && e.pointerId === pm.pointerId){
+    const dist = Math.hypot(e.clientX - pm.startX, e.clientY - pm.startY);
+    if (pm.isTouch){
+      // 長押し成立前に動いた → スクロール操作。範囲選択は開始しない
+      if (dist > LP_CANCEL_PX){ clearTimeout(pm.lpTimer); state.pendingMarquee = null; }
+    } else if (dist > DRAG_START_PX){
+      startMarquee(pm);
+      marqueeMove(e);
+    }
   }
 });
 
@@ -1511,12 +1691,19 @@ window.addEventListener('pointerup', e => {
   if (state.placing){ finishPlacing(e); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ endResize(false); return; }
   if (state.drag && e.pointerId === state.drag.pointerId){ endDrag(false); return; }
+  if (state.marquee && e.pointerId === state.marquee.pointerId){ endMarquee(false); return; }
+  const pm = state.pendingMarquee;
+  if (pm && e.pointerId === pm.pointerId){
+    clearTimeout(pm.lpTimer);
+    state.pendingMarquee = null;
+    // 範囲選択に至らないタップ → gridElのpointerupハンドラ（選択解除/ダブルタップ作成）に任せる
+  }
   const s = state.pending;
   if (s && e.pointerId === s.pointerId){
     clearTimeout(s.lpTimer);
     state.pending = null;
     // ドラッグに至らないタップ/クリック → 選択。選択済みならタイトル編集
-    const wasSelected = state.selectedId === s.id;
+    const wasSelected = singleSelId() === s.id;
     select(s.id);
     if (wasSelected) startTitleEdit(s.id);
   }
@@ -1525,6 +1712,12 @@ window.addEventListener('pointerup', e => {
 window.addEventListener('pointercancel', e => {
   if (state.resize && e.pointerId === state.resize.pointerId) endResize(true);
   if (state.drag && e.pointerId === state.drag.pointerId) endDrag(true);
+  if (state.marquee && e.pointerId === state.marquee.pointerId) endMarquee(true);
+  const pm = state.pendingMarquee;
+  if (pm && e.pointerId === pm.pointerId){
+    clearTimeout(pm.lpTimer);
+    state.pendingMarquee = null;
+  }
   const s = state.pending;
   if (s && e.pointerId === s.pointerId){
     clearTimeout(s.lpTimer);
@@ -1532,9 +1725,9 @@ window.addEventListener('pointercancel', e => {
   }
 });
 
-// ドラッグ/リサイズ/コピー配置の確定後にネイティブスクロールが割り込むのを防ぐ
+// ドラッグ/リサイズ/コピー配置/範囲選択の確定後にネイティブスクロールが割り込むのを防ぐ
 window.addEventListener('touchmove', e => {
-  if (state.drag || state.resize || state.placing) e.preventDefault();
+  if (state.drag || state.resize || state.placing || state.marquee) e.preventDefault();
 }, { passive: false });
 
 // タッチ長押しのコンテキストメニューを抑止
@@ -1544,7 +1737,8 @@ boardWrap.addEventListener('contextmenu', e => e.preventDefault());
 let lastTap = null;
 gridEl.addEventListener('pointerup', e => {
   if (e.target !== gridEl) return;
-  if (state.drag || state.resize || state.placing) return;
+  // 範囲選択直後のpointerupはタップ扱いにしない（windowハンドラが後で終了処理する）
+  if (state.drag || state.resize || state.placing || state.marquee) return;
   const now = performance.now();
   if (lastTap && now - lastTap.t < TAP_DOUBLE_MS &&
       Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < TAP_DOUBLE_PX){
@@ -2045,7 +2239,7 @@ async function openTitle(name){
   state.currentName = name;
   state.rec = rec;
   state.doc = rec.doc;
-  state.selectedId = null;
+  state.selIds = [];
   titleView.hidden = true;
   boardView.hidden = false;
   boardTitleEl.textContent = name;
