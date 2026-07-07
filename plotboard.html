@@ -251,9 +251,13 @@ header h1{
   cursor: pointer;
 }
 .set-opt input{ margin-top: 3px; }
-.set-row{ display: flex; flex-wrap: wrap; gap: 0 16px; }
-.set-row .set-opt{ align-items: center; }
-.set-row .set-opt input{ margin-top: 0; }
+/* 文字サイズのスライダー行 */
+.fs-row{ display: flex; align-items: center; gap: 10px; padding: 8px 0 2px; }
+.fs-row input[type="range"]{ flex: 1; min-width: 0; accent-color: var(--accent); }
+.fs-val{
+  font-size: 13px; min-width: 44px; text-align: right;
+  font-variant-numeric: tabular-nums; color: #55606a;
+}
 .set-sep{ height: 1px; background: var(--line); margin: 6px 0 2px; }
 /* プリセット色エディタ */
 .palette-editor{ display: flex; flex-direction: column; gap: 7px; margin-top: 8px; }
@@ -805,11 +809,11 @@ header h1{
     <div class="set-sep"></div>
     <div>
       <div class="set-label">ブロックの文字サイズ（この端末のみ）</div>
-      <div class="set-row">
-        <label class="set-opt"><input type="radio" name="fontScale" value="small"><span>小</span></label>
-        <label class="set-opt"><input type="radio" name="fontScale" value="standard"><span>標準</span></label>
-        <label class="set-opt"><input type="radio" name="fontScale" value="large"><span>大</span></label>
-        <label class="set-opt"><input type="radio" name="fontScale" value="xlarge"><span>特大</span></label>
+      <div class="fs-row">
+        <input id="fontScaleRange" type="range" min="50" max="200" step="5"
+               aria-label="ブロックの文字サイズ（%）">
+        <span id="fontScaleVal" class="fs-val">100%</span>
+        <button id="fontScaleReset" type="button" class="pal-reset" title="標準（100%）に戻す">↺</button>
       </div>
     </div>
     <div class="set-sep"></div>
@@ -885,7 +889,9 @@ const DEFAULT_PALETTE = {
 const CELL_MIN = 22, CELL_MAX = 48;   // マスの実サイズ範囲(px)。旧値の半分（縦横半分＝面積1/4）
 // 表示倍率(ズーム)のステップ。100%=画面幅フィット。PCで小さすぎるとき拡大するための機能
 const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-// ブロック文字サイズ設定（設定パネルの4段階 → 基準フォントへの倍率）
+// ブロック文字サイズ設定はスライダーで数値指定（基準フォントへの倍率）。
+// FONT_SCALESは旧4段階設定('small'等)を数値へ読み替えるための変換表
+const FSCALE_MIN = 0.5, FSCALE_MAX = 2;
 const FONT_SCALES = { small: 0.85, standard: 1, large: 1.2, xlarge: 1.45 };
 const CELL_ZMIN = 12, CELL_ZMAX = 200; // ズーム適用後のマス実サイズの下限・上限(px)
 const MAX_COLS = 60, MAX_ROWS = 60;
@@ -905,7 +911,7 @@ const SETTINGS_KEY = 'pb_settings';
 const SETTINGS_DEFAULTS = {
   editorConfirmKey: 'standard', // 'standard' | 'shift-enter'
   displayZoom: 1, // 表示倍率。画面幅フィット(=100%)に対する倍率。端末ローカル設定
-  fontScale: 'standard', // ブロックの文字サイズ。FONT_SCALESのキー。端末ローカル設定
+  fontScale: 1, // ブロックの文字サイズ倍率(数値)。旧値はFONT_SCALESのキー文字列。端末ローカル設定
   palette: {} // プリセット色の上書き { colorId: {bg,border,fg} }。端末ローカル設定
 };
 function getSetting(k){
@@ -919,6 +925,12 @@ function setSetting(k, v){
   try{ s = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }catch(_){}
   s[k] = v;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+// 文字サイズ倍率を数値で返す（旧4段階のキー文字列はFONT_SCALESで読み替え）
+function fontScaleValue(){
+  const v = getSetting('fontScale');
+  const n = typeof v === 'number' ? v : FONT_SCALES[v] ?? 1;
+  return Math.max(FSCALE_MIN, Math.min(FSCALE_MAX, n));
 }
 
 // マウス環境か（ハイブリッド端末はfine優先）。ツールバー配置等の分岐に使う
@@ -1186,7 +1198,7 @@ function renderAll(){
   // 本文・マークのフォントサイズ = 基準px × 表示倍率(--zoom) × 文字サイズ設定(--fscale)
   // （block-title等の calc(... * var(--zoom) * var(--fscale)) が参照）
   gridEl.style.setProperty('--zoom', zoom);
-  gridEl.style.setProperty('--fscale', FONT_SCALES[getSetting('fontScale')] ?? 1);
+  gridEl.style.setProperty('--fscale', fontScaleValue());
 
   // ブロック再構築（クリップ判定に実寸が要るため、DOM追加後にレイアウト）
   for (const el of blockEls.values()) el.remove();
@@ -2191,9 +2203,7 @@ settingsBtn.addEventListener('click', () => {
   for (const r of settingsModal.querySelectorAll('input[name="confirmKey"]')){
     r.checked = r.value === getSetting('editorConfirmKey');
   }
-  for (const r of settingsModal.querySelectorAll('input[name="fontScale"]')){
-    r.checked = r.value === getSetting('fontScale');
-  }
+  updateFontScaleUI();
   refreshPaletteEditor();
   settingsModal.hidden = false;
 });
@@ -2203,12 +2213,24 @@ settingsModal.addEventListener('pointerdown', e => {
 });
 settingsModal.addEventListener('change', e => {
   if (e.target.name === 'confirmKey') setSetting('editorConfirmKey', e.target.value);
-  else if (e.target.name === 'fontScale'){
-    setSetting('fontScale', e.target.value);
-    // クリップ判定（「…」表示）とタイトル字下げが変わるので再描画
-    if (!boardView.hidden) renderAll();
-  }
 });
+
+/* 文字サイズスライダー（50〜200%・5%刻み）。ドラッグ中も即時反映して
+ * 大きさを見ながらシークできるようにする */
+const fontScaleRange = $('fontScaleRange'), fontScaleValEl = $('fontScaleVal');
+function updateFontScaleUI(){
+  const pct = Math.round(fontScaleValue() * 100);
+  fontScaleRange.value = pct;
+  fontScaleValEl.textContent = pct + '%';
+}
+function applyFontScale(n){
+  setSetting('fontScale', n);
+  updateFontScaleUI();
+  // クリップ判定（「…」表示）とマーク退避幅が変わるので再描画
+  if (!boardView.hidden) renderAll();
+}
+fontScaleRange.addEventListener('input', () => applyFontScale(fontScaleRange.value / 100));
+$('fontScaleReset').addEventListener('click', () => applyFontScale(1));
 
 /* ---------- 表示倍率（ズーム） ----------
  * PCでは画面幅フィット(=100%)だとマスが小さく端に寄りがちなので、
