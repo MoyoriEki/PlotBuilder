@@ -447,6 +447,49 @@ header h1{
   cursor: default;
 }
 
+/* ---- 表示倍率（ズーム）ピル ---- */
+#zoomCtl{
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid #d4dade;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.14);
+  z-index: 46;
+  opacity: .6;
+  transition: opacity .15s;
+}
+@media (hover: hover){
+  #zoomCtl{ opacity: .35; }
+  #zoomCtl:hover{ opacity: 1; }
+}
+#zoomCtl button{
+  border: none;
+  background: transparent;
+  color: #55606a;
+  cursor: pointer;
+  line-height: 1;
+  border-radius: 10px;
+}
+#zoomOut, #zoomIn{
+  width: 28px; height: 28px;
+  font-size: 18px;
+}
+#zoomLabel{
+  min-width: 46px;
+  height: 28px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#zoomCtl button:hover{ background: #eef1f4; }
+#zoomCtl button:disabled{ opacity: .3; cursor: default; background: transparent; }
+
 /* ---- ツールバー（画面下部固定・モバイル親指圏） ---- */
 #toolbar{
   position: fixed;
@@ -680,6 +723,11 @@ header h1{
     </div>
   </div>
 </div>
+<div id="zoomCtl" title="表示倍率">
+  <button id="zoomOut" type="button" aria-label="縮小">−</button>
+  <button id="zoomLabel" type="button" title="100%（画面幅フィット）に戻す">100%</button>
+  <button id="zoomIn" type="button" aria-label="拡大">＋</button>
+</div>
 </div><!-- /boardView -->
 
 <div id="toolbar" class="hidden">
@@ -768,6 +816,9 @@ const COLOR_LABELS = {
   blue:'青', magenta:'マゼンタ', orange:'オレンジ', gray:'グレー'
 };
 const CELL_MIN = 22, CELL_MAX = 48;   // マスの実サイズ範囲(px)。旧値の半分（縦横半分＝面積1/4）
+// 表示倍率(ズーム)のステップ。100%=画面幅フィット。PCで小さすぎるとき拡大するための機能
+const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const CELL_ZMIN = 12, CELL_ZMAX = 200; // ズーム適用後のマス実サイズの下限・上限(px)
 const MAX_COLS = 60, MAX_ROWS = 60;
 const LONG_PRESS_MS = 300;            // モバイル長押しドラッグ開始
 const DRAG_START_PX = 4;              // マウスのドラッグ開始しきい値
@@ -783,7 +834,8 @@ const NAME_FORBIDDEN = /[\\/:?*"<>|]/; // Dropboxのパス禁止文字
  * 将来の設定項目追加はSETTINGS_DEFAULTSに足すだけでよい */
 const SETTINGS_KEY = 'pb_settings';
 const SETTINGS_DEFAULTS = {
-  editorConfirmKey: 'standard' // 'standard' | 'shift-enter'
+  editorConfirmKey: 'standard', // 'standard' | 'shift-enter'
+  displayZoom: 1 // 表示倍率。画面幅フィット(=100%)に対する倍率。端末ローカル設定
 };
 function getSetting(k){
   try{
@@ -896,6 +948,7 @@ const state = {
   hoverReady: false // ホバー表示遅延（300ms）が経過したか
 };
 let cell = 64;     // 1マスのpxサイズ（renderAllで再計算）
+let zoom = Math.max(ZOOM_STEPS[0], Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], Number(getSetting('displayZoom')) || 1)); // 表示倍率
 window.__plotboard = state; // 動作確認・デバッグ用フック
 
 const board  = () => state.doc.boards[0];
@@ -920,6 +973,7 @@ const conflictModal = $('conflictModal');
 const saveIndicator = $('saveIndicator'), saveText = $('saveText');
 const colPlus = $('colPlus'), colMinus = $('colMinus');
 const rowPlus = $('rowPlus'), rowMinus = $('rowMinus');
+const zoomCtl = $('zoomCtl'), zoomOutBtn = $('zoomOut'), zoomInBtn = $('zoomIn'), zoomLabelBtn = $('zoomLabel');
 const blockEls = new Map(); // id -> element
 
 /* ---------- IndexedDB 保存 ----------
@@ -1043,9 +1097,11 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 /* ---------- レンダリング ---------- */
 function computeCell(){
-  // 画面幅に合わせてスケール。収まらない場合は横スクロール（マスは正方形固定）
+  // 画面幅フィットのマス寸(=倍率100%)を求め、表示倍率(zoom)を掛ける。
+  // 収まらない場合は横スクロール（マスは正方形固定）
   const avail = scroller.clientWidth - 18 - 60 - 4; // boardWrapのpadding分
-  return clamp(Math.floor(avail / board().grid.cols), CELL_MIN, CELL_MAX);
+  const base = clamp(Math.floor(avail / board().grid.cols), CELL_MIN, CELL_MAX);
+  return clamp(Math.round(base * zoom), CELL_ZMIN, CELL_ZMAX);
 }
 
 function renderAll(){
@@ -1916,6 +1972,55 @@ settingsModal.addEventListener('pointerdown', e => {
 settingsModal.addEventListener('change', e => {
   if (e.target.name === 'confirmKey') setSetting('editorConfirmKey', e.target.value);
 });
+
+/* ---------- 表示倍率（ズーム） ----------
+ * PCでは画面幅フィット(=100%)だとマスが小さく端に寄りがちなので、
+ * 倍率を上げて大きく表示できるようにする。倍率は端末ローカルに保存。
+ * cell(1マスのpx)に倍率を掛けるだけなので、D&D等の座標計算はそのまま整合する。 */
+function updateZoomUI(){
+  zoomLabelBtn.textContent = Math.round(zoom * 100) + '%';
+  zoomOutBtn.disabled = zoom <= ZOOM_STEPS[0] + 1e-6;
+  zoomInBtn.disabled  = zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1] - 1e-6;
+}
+function applyZoom(z, { save = true } = {}){
+  const nz = clamp(z, ZOOM_STEPS[0], ZOOM_STEPS[ZOOM_STEPS.length - 1]);
+  if (Math.abs(nz - zoom) > 1e-6){
+    zoom = nz;
+    if (save) setSetting('displayZoom', zoom);
+    if (!boardView.hidden) renderAll();
+  }
+  updateZoomUI();
+}
+function stepZoom(dir){
+  // 現在値に最も近いステップを起点に dir 方向へ1段動かす
+  let idx = 0, best = Infinity;
+  for (let i = 0; i < ZOOM_STEPS.length; i++){
+    const d = Math.abs(ZOOM_STEPS[i] - zoom);
+    if (d < best){ best = d; idx = i; }
+  }
+  if (dir > 0 && ZOOM_STEPS[idx] <= zoom + 1e-6) idx++;
+  else if (dir < 0 && ZOOM_STEPS[idx] >= zoom - 1e-6) idx--;
+  applyZoom(ZOOM_STEPS[clamp(idx, 0, ZOOM_STEPS.length - 1)]);
+}
+zoomInBtn.addEventListener('click', () => stepZoom(1));
+zoomOutBtn.addEventListener('click', () => stepZoom(-1));
+zoomLabelBtn.addEventListener('click', () => applyZoom(1)); // 100%（画面幅フィット）に戻す
+updateZoomUI();
+
+// PCキーボード: Ctrl/Cmd + ＋ / − で拡大縮小、Ctrl/Cmd + 0 でフィット
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  if (boardView.hidden || state.editing) return;
+  if (e.key === '+' || e.key === '='){ e.preventDefault(); stepZoom(1); }
+  else if (e.key === '-' || e.key === '_'){ e.preventDefault(); stepZoom(-1); }
+  else if (e.key === '0'){ e.preventDefault(); applyZoom(1); }
+});
+// Ctrl/Cmd + ホイール（トラックパッドのピンチ含む）でズーム。ページズームは抑止
+scroller.addEventListener('wheel', e => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  stepZoom(e.deltaY < 0 ? 1 : -1);
+}, { passive: false });
 
 /* ---------- リサイズ・回転対応 ---------- */
 let resizeRaf = null;
