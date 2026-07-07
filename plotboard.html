@@ -341,7 +341,7 @@ header h1{
 }
 /* textの1行目=タイトルとして強調表示 */
 .block-title{
-  font-size: 11px;
+  font-size: calc(11px * var(--zoom, 1));
   font-weight: 600;
   line-height: 1.3;
   word-break: break-word;
@@ -349,7 +349,7 @@ header h1{
 /* 2行目以降はブロックの高さに入る分だけ表示（あふれはクリップ）。
    ブロックを大きくする＝本文が多く見える、の関係を作る */
 .block-rest{
-  font-size: 10px;
+  font-size: calc(10px * var(--zoom, 1));
   line-height: 1.4;
   margin-top: 2px;
   opacity: .72;
@@ -360,7 +360,7 @@ header h1{
 .block-more{
   position: absolute;
   right: 4px; bottom: 1px;
-  font-size: 11px;
+  font-size: calc(11px * var(--zoom, 1));
   line-height: 1;
   opacity: .5;
   pointer-events: none;
@@ -585,11 +585,12 @@ header h1{
   color: #fff;
 }
 
-/* ---- マーク（★/フラッグ）バッジ ---- */
+/* ---- マーク（★/フラッグ/×）バッジ ---- */
 .block-marks{
   position: absolute;
-  top: -8px; left: -5px;
-  font-size: 13px;
+  top: -9px; left: -6px;
+  /* マークは少し大きめ表示。ズーム時は本文と同様に倍率で拡大する */
+  font-size: calc(17px * var(--zoom, 1));
   line-height: 1;
   pointer-events: none;
   text-shadow: 0 1px 2px rgba(0,0,0,.3), 0 0 2px #fff;
@@ -597,6 +598,7 @@ header h1{
 }
 .mark-star{ color: #f0b400; }
 .mark-flag{ color: #e04b3a; }
+.mark-cross{ color: #d93a3a; font-weight: 700; }
 
 /* ---- 全文ツールチップ（PC・表示専用） ----
  * 操作要素を一切含まない＝カーソルをボタンに運ぶ動線が無いので、
@@ -659,6 +661,7 @@ header h1{
 .tbtn:disabled{ opacity: .35; cursor: default; }
 .tbtn.active[data-mark="star"]{ color:#d99f00; border-color:#e6bb45; background:#fff8e2; }
 .tbtn.active[data-mark="flag"]{ color:#d0402f; border-color:#e08a7d; background:#fdeeec; }
+.tbtn.active[data-mark="cross"]{ color:#c62f2f; border-color:#e08a7d; background:#fdeeec; }
 /* タッチ環境専用ボタン（編集など）。ハイブリッド端末はfine優先 */
 @media (pointer: fine){ .coarse-only{ display: none; } }
 .tsep{
@@ -759,6 +762,7 @@ header h1{
   <span id="tools" style="display:flex; gap:6px; align-items:center;">
     <button id="starBtn" class="tbtn" data-mark="star" title="★マーク">★</button>
     <button id="flagBtn" class="tbtn" data-mark="flag" title="フラッグ">⚑</button>
+    <button id="crossBtn" class="tbtn" data-mark="cross" title="×マーク（無効・保留など）">×</button>
     <button id="editBtn" class="tbtn coarse-only" title="テキストを編集">編集</button>
     <button id="copyBtn" class="tbtn" title="ブロックをコピー">コピー</button>
   </span>
@@ -1003,7 +1007,7 @@ const $ = id => document.getElementById(id);
 const scroller = $('scroller'), boardWrap = $('boardWrap'), gridEl = $('grid');
 const ghostEl = $('ghost'), marqueeEl = $('marquee'), editorTa = $('editorTa');
 const toolbarEl = $('toolbar'), swatchesEl = $('swatches'), delBtn = $('delBtn');
-const starBtn = $('starBtn'), flagBtn = $('flagBtn');
+const starBtn = $('starBtn'), flagBtn = $('flagBtn'), crossBtn = $('crossBtn');
 const editBtn = $('editBtn'), copyBtn = $('copyBtn');
 const tooltipEl = $('tooltip'), mobilePreviewEl = $('mobilePreview');
 const settingsBtn = $('settingsBtn'), settingsModal = $('settingsModal');
@@ -1155,6 +1159,8 @@ function renderAll(){
   gridEl.style.width = gw + 'px';
   gridEl.style.height = gh + 'px';
   gridEl.style.backgroundSize = `${cell}px ${cell}px`;
+  // 本文・マークのフォントサイズを倍率で拡大（block-title等の calc(... * var(--zoom)) が参照）
+  gridEl.style.setProperty('--zoom', zoom);
 
   // ブロック再構築（クリップ判定に実寸が要るため、DOM追加後にレイアウト）
   for (const el of blockEls.values()) el.remove();
@@ -1237,13 +1243,14 @@ function layoutBlock(b){
   const [t, rest] = splitText(b.text);
   el.querySelector('.block-title').textContent = t;
   el.querySelector('.block-rest').textContent = rest;
-  // マーク（★/フラッグ）バッジ
+  // マーク（★/フラッグ/×）バッジ
   const marksEl = el.querySelector('.block-marks');
   marksEl.textContent = '';
   for (const m of b.marks){
     const s = document.createElement('span');
     if (m === 'star'){ s.className = 'mark-star'; s.textContent = '★'; }
     else if (m === 'flag'){ s.className = 'mark-flag'; s.textContent = '⚑'; }
+    else if (m === 'cross'){ s.className = 'mark-cross'; s.textContent = '×'; }
     else continue;
     marksEl.appendChild(s);
   }
@@ -1450,6 +1457,7 @@ function updateToolbar(){
   }
   starBtn.classList.toggle('active', sel.every(b => b.marks.includes('star')));
   flagBtn.classList.toggle('active', sel.every(b => b.marks.includes('flag')));
+  crossBtn.classList.toggle('active', sel.every(b => b.marks.includes('cross')));
   editBtn.disabled = sel.length !== 1; // テキスト編集は単一選択のみ
   if (!delBtn.classList.contains('armed')) delBtn.textContent = delLabel();
   // フローティング時は選択範囲の近傍（上、入らなければ下）に配置。
@@ -1468,7 +1476,8 @@ function updateToolbar(){
   }
 }
 
-/* ---------- マーク（★/フラッグ） ----------
+/* ---------- マーク（★/フラッグ/×） ----------
+ * ×は「無効・保留などのメモ」を可視化する用途。
  * 複数選択時: 全員が付いていれば全員から外す、そうでなければ全員に付ける */
 function toggleMark(kind){
   const sel = selectedBlocks();
@@ -1485,6 +1494,7 @@ function toggleMark(kind){
 }
 starBtn.addEventListener('click', () => toggleMark('star'));
 flagBtn.addEventListener('click', () => toggleMark('flag'));
+crossBtn.addEventListener('click', () => toggleMark('cross'));
 
 /* ---------- 全文プレビュー ----------
  * PC: クリップされたブロックへのホバーで表示専用ツールチップ。操作要素を
