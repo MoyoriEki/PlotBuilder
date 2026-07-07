@@ -59,7 +59,7 @@ header h1{
   font-size: 15px; font-weight: 700; letter-spacing: .04em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-#backBtn, #syncBtn{
+#backBtn, #syncBtn, #settingsBtn{
   flex: none;
   width: 32px; height: 32px;
   border-radius: 9px;
@@ -237,6 +237,18 @@ header h1{
   background: var(--accent); border-color: var(--accent); color: #fff;
 }
 .dialog .btns button.quiet{ border: none; color: #98a2ab; }
+/* 設定パネル */
+.set-label{ font-size: 12px; color: #8a939b; }
+.set-opt{
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 5px 0;
+  cursor: pointer;
+}
+.set-opt input{ margin-top: 3px; }
 .hint{ font-size: 11.5px; color: #8a939b; }
 @media (max-width: 680px){ .hint{ display: none; } }
 
@@ -302,20 +314,31 @@ header h1{
   overflow: hidden;
   pointer-events: none; /* タップ判定はブロック本体で行う */
 }
+/* textの1行目=タイトルとして強調表示 */
 .block-title{
   font-size: 11px;
   font-weight: 600;
   line-height: 1.3;
   word-break: break-word;
 }
-/* メモの冒頭をブロックの空きスペースに表示（入る分だけ。あふれはクリップ） */
-.block-memo{
+/* 2行目以降はブロックの高さに入る分だけ表示（あふれはクリップ）。
+   ブロックを大きくする＝本文が多く見える、の関係を作る */
+.block-rest{
   font-size: 10px;
   line-height: 1.4;
   margin-top: 2px;
   opacity: .72;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* テキストがクリップされている時だけ出す「まだある」表示 */
+.block-more{
+  position: absolute;
+  right: 4px; bottom: 1px;
+  font-size: 11px;
+  line-height: 1;
+  opacity: .5;
+  pointer-events: none;
 }
 .block.selected{
   box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgba(0,0,0,.15);
@@ -376,18 +399,20 @@ header h1{
   z-index: 7;
 }
 
-/* タイトルのインライン編集 */
-#titleInput{
+/* その場編集ポップオーバーエディタ（ブロックが膨らんで編集モードになる印象）
+   背景・枠・文字色は .color-* クラスから受け取る */
+#editorTa{
   position: absolute;
   z-index: 30;
-  font: 600 11px/1.3 inherit;
+  font: 11px/1.4 inherit;
   font-family: inherit;
-  color: var(--ink);
-  border: 1.5px solid var(--accent);
-  border-radius: 4px;
-  padding: 2px 5px;
-  background: #fff;
+  border: 2px solid;
+  border-radius: 6px;
+  padding: 4px 6px;
   outline: none;
+  resize: none;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0,0,0,.28);
 }
 
 /* ---- 行・列の追加/削除（端のホバーで現れる控えめなUI） ---- */
@@ -445,6 +470,24 @@ header h1{
   opacity: 0;
   pointer-events: none;
 }
+/* PC（pointer: fine）: 選択ブロック近傍に浮かぶフローティングツールバー。
+   盤面が左上・ツールバーが画面下部固定だと4K等でカーソル移動距離が遠すぎるため */
+#toolbar.floating{
+  position: absolute;
+  transform: none;
+  bottom: auto;
+  z-index: 45;
+  flex-wrap: nowrap;
+  max-width: none;
+  width: max-content; /* 包含ブロック(boardWrap)幅へのshrink-to-fitを防ぐ */
+  padding: 7px 12px;
+  transition: opacity .12s ease;
+}
+#toolbar.floating.hidden{
+  transform: none;
+  opacity: 0;
+  pointer-events: none;
+}
 .swatch{
   width: 28px; height: 28px;
   border-radius: 50%;
@@ -487,120 +530,49 @@ header h1{
 .mark-star{ color: #f0b400; }
 .mark-flag{ color: #e04b3a; }
 
-/* メモありインジケータ（ブロック右下の小さな点） */
-.memo-dot{
-  position: absolute;
-  right: 3px; bottom: 3px;
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: .4;
-  pointer-events: none;
-}
-
-/* ---- メモポップオーバー ---- */
-#memoPop{
+/* ---- 全文ツールチップ（PC・表示専用） ----
+ * 操作要素を一切含まない＝カーソルをボタンに運ぶ動線が無いので、
+ * 途中で他ブロックに触れて消える問題が構造的に起きない */
+#tooltip{
   position: absolute;
   z-index: 40;
   width: max-content;
-  max-width: min(280px, 78vw);
+  max-width: min(300px, 78vw);
   background: #fffef6;
   border: 1px solid #ddd6b8;
   border-radius: 9px;
   box-shadow: 0 5px 18px rgba(0,0,0,.18);
   padding: 8px 10px;
-}
-#memoPop.readonly{ pointer-events: none; }
-#memoPop .memo-text{
+  pointer-events: none;
   font-size: 12.5px;
   line-height: 1.55;
   color: #4c4735;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 190px;
-  overflow-y: auto;
 }
-#memoPop .memo-text:not([hidden]) + .memo-edit{
-  margin-top: 7px;
-}
-#memoPop .memo-edit{
-  border: 1px solid #c9d2d9;
-  background: #fff;
-  border-radius: 7px;
-  padding: 4px 12px;
-  font-size: 12px;
-  font-family: inherit;
-  color: #55606a;
-  cursor: pointer;
-}
-#memoPop.readonly .memo-edit{ display: none; }
+#tooltip .tt-title, #mobilePreview .tt-title{ font-weight: 700; }
 
-/* ---- メモ編集モーダル ----
- * 画面ほぼ全体を使うシート型。高さはdvh基準なのでソフトキーボード表示時は
- * その分縮み、テキストエリアが隠れない */
-#memoModal{
+/* ---- 全文プレビュー（モバイル・選択中でクリップ時のみ画面下部に表示） ---- */
+#mobilePreview{
   position: fixed;
-  inset: 0;
-  background: rgba(30, 36, 42, .38);
-  display: flex;
-  align-items: stretch;
-  justify-content: center;
-  padding: 10px;
-  z-index: 100;
-  height: 100dvh;
-}
-#memoModal[hidden]{ display: none; }
-#memoModal .card{
-  background: #fff;
-  border-radius: 13px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.3);
-  width: min(720px, 100%);
-  max-height: 100%;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-#memoModal .card h2{
-  font-size: 14px;
-  font-weight: 700;
+  left: 10px; right: 10px;
+  max-height: 32vh;
+  overflow-y: auto;
+  background: #fffef6;
+  border: 1px solid #ddd6b8;
+  border-radius: 10px;
+  box-shadow: 0 5px 18px rgba(0,0,0,.2);
+  padding: 9px 12px;
+  z-index: 48;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #4c4735;
+  white-space: pre-wrap;
   word-break: break-word;
-  flex: none;
 }
-#memoTa{
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  resize: none;
-  font: 13px/1.6 inherit;
-  font-family: inherit;
-  padding: 9px 10px;
-  border: 1px solid #c4ccd3;
-  border-radius: 8px;
-  outline-color: var(--accent);
-}
-#memoModal .btns{
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-#memoModal .btns button{
-  border-radius: 8px;
-  padding: 7px 16px;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  border: 1px solid #c4ccd3;
-  background: #fff;
-  color: #55606a;
-}
-#memoModal #memoSave{
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
+@media (pointer: fine){ #mobilePreview{ display: none; } }
 
-/* ---- ツールバーの操作ボタン（マーク・メモ・コピー） ---- */
+/* ---- ツールバーの操作ボタン（マーク・編集・コピー） ---- */
 #toolbar{ flex-wrap: wrap; justify-content: center; }
 .tbtn{
   height: 30px;
@@ -619,6 +591,8 @@ header h1{
 .tbtn:disabled{ opacity: .35; cursor: default; }
 .tbtn.active[data-mark="star"]{ color:#d99f00; border-color:#e6bb45; background:#fff8e2; }
 .tbtn.active[data-mark="flag"]{ color:#d0402f; border-color:#e08a7d; background:#fdeeec; }
+/* タッチ環境専用ボタン（編集など）。ハイブリッド端末はfine優先 */
+@media (pointer: fine){ .coarse-only{ display: none; } }
 .tsep{
   width: 1px;
   height: 22px;
@@ -684,6 +658,7 @@ header h1{
   <span class="hint">空きマスをダブルクリックでブロック作成、空きマスからドラッグで範囲選択。モバイルは長押しでドラッグ / 範囲選択</span>
   <span id="saveIndicator"><span class="dot"></span><span id="saveText">保存済み</span></span>
   <button id="syncBtn" type="button" title="今すぐ同期" hidden>⟳</button>
+  <button id="settingsBtn" type="button" title="設定">⚙</button>
 </header>
 
 <div id="scroller">
@@ -691,11 +666,9 @@ header h1{
     <div id="grid">
       <div id="ghost" class="ghost" hidden></div>
       <div id="marquee" hidden></div>
-      <input id="titleInput" hidden autocomplete="off" enterkeyhint="done" placeholder="タイトル">
-      <div id="memoPop" hidden>
-        <div class="memo-text"></div>
-        <button class="memo-edit" type="button">メモを編集</button>
-      </div>
+      <div id="tooltip" hidden></div>
+      <textarea id="editorTa" hidden autocomplete="off"
+                placeholder="1行目がタイトル&#10;2行目からメモ…"></textarea>
     </div>
     <div id="colCtl" class="edge-ctl">
       <button id="colPlus"  title="列を追加" aria-label="列を追加">＋</button>
@@ -713,7 +686,7 @@ header h1{
   <span id="tools" style="display:flex; gap:6px; align-items:center;">
     <button id="starBtn" class="tbtn" data-mark="star" title="★マーク">★</button>
     <button id="flagBtn" class="tbtn" data-mark="flag" title="フラッグ">⚑</button>
-    <button id="memoBtn" class="tbtn" title="メモを編集">メモ</button>
+    <button id="editBtn" class="tbtn coarse-only" title="テキストを編集">編集</button>
     <button id="copyBtn" class="tbtn" title="ブロックをコピー">コピー</button>
   </span>
   <span class="tsep"></span>
@@ -724,13 +697,25 @@ header h1{
 
 <div id="placeHint" hidden>コピーの配置先をタップ / クリック（Escで中止）</div>
 
-<div id="memoModal" hidden>
+<div id="mobilePreview" hidden></div>
+
+<!-- 設定パネル（端末ローカル設定。作品JSONには含めない） -->
+<div id="settingsModal" class="dialog" hidden>
   <div class="card">
-    <h2 id="memoModalTitle">メモ</h2>
-    <textarea id="memoTa" placeholder="このブロックのメモ…"></textarea>
+    <h2>設定</h2>
+    <div>
+      <div class="set-label">エディタの確定キー</div>
+      <label class="set-opt">
+        <input type="radio" name="confirmKey" value="standard">
+        <span>標準 — Enterで改行。確定は外側クリック / Esc</span>
+      </label>
+      <label class="set-opt">
+        <input type="radio" name="confirmKey" value="shift-enter">
+        <span>Shift+Enterで確定 — Enterは改行</span>
+      </label>
+    </div>
     <div class="btns">
-      <button id="memoCancel" type="button">キャンセル</button>
-      <button id="memoSave" type="button">保存</button>
+      <button id="settingsClose" type="button" class="primary">閉じる</button>
     </div>
   </div>
 </div>
@@ -793,6 +778,29 @@ const SAVE_DEBOUNCE_MS = 1200;
 const CLOUD_DEBOUNCE_MS = window.__PB_CLOUD_DEBOUNCE ?? 20000;
 const NAME_FORBIDDEN = /[\\/:?*"<>|]/; // Dropboxのパス禁止文字
 
+/* ---------- 端末ローカル設定（localStorage・クラウド同期しない） ----------
+ * キー操作の好みは端末・ユーザー環境に紐づくため作品JSONには含めない。
+ * 将来の設定項目追加はSETTINGS_DEFAULTSに足すだけでよい */
+const SETTINGS_KEY = 'pb_settings';
+const SETTINGS_DEFAULTS = {
+  editorConfirmKey: 'standard' // 'standard' | 'shift-enter'
+};
+function getSetting(k){
+  try{
+    const s = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+    return k in s ? s[k] : SETTINGS_DEFAULTS[k];
+  }catch(_){ return SETTINGS_DEFAULTS[k]; }
+}
+function setSetting(k, v){
+  let s = {};
+  try{ s = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; }catch(_){}
+  s[k] = v;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
+// マウス環境か（ハイブリッド端末はfine優先）。ツールバー配置等の分岐に使う
+const finePointer = () => window.matchMedia('(pointer: fine)').matches;
+
 // 端末識別子（JSONのdeviceフィールド用）
 const deviceId = (() => {
   let d = localStorage.getItem('pb_device');
@@ -809,7 +817,7 @@ function genId(){ return 'blk-' + Math.random().toString(36).slice(2, 10); }
 function newDoc(name){
   // 縦長デフォルト（モバイル配慮の縦長ファースト方針。以降のUIも縦長を優先して設計する）
   return {
-    version: 1,
+    version: 2,
     title: name || '無題',
     updatedAt: null,  // ISO文字列。保存のたびに更新
     device: null,     // 最終更新した端末の識別子
@@ -817,14 +825,19 @@ function newDoc(name){
   };
 }
 function newBlock(x, y){
-  // memo / marks / thumb は Phase 1 では未使用だがデータとして保持する
+  // version 2: title/memo を text に統一（1行目=タイトルとして表示）
   return { id: genId(), x, y, w: 1, h: 1,
-           title: '', color: 'green', memo: '', marks: [], thumb: null };
+           text: '', color: 'green', marks: [], thumb: null };
 }
-// 復元データの欠損フィールドを補う（将来フィールド追加時の前方互換も兼ねる）
+// textを「1行目（タイトル）」と「2行目以降」に分割
+function splitText(text){
+  const i = text.indexOf('\n');
+  return i < 0 ? [text, ''] : [text.slice(0, i), text.slice(i + 1)];
+}
+// 復元データの欠損フィールドを補い、version 1（title/memo分離）は
+// text = title + "\n" + memo に統合して version 2 へ変換する
 function normalizeDoc(d){
   if (!d || !Array.isArray(d.boards) || !d.boards[0]) return newDoc();
-  d.version = 1;
   d.title = typeof d.title === 'string' ? d.title : '無題';
   d.updatedAt = typeof d.updatedAt === 'string' ? d.updatedAt : null;
   d.device = typeof d.device === 'string' ? d.device : null;
@@ -836,13 +849,34 @@ function normalizeDoc(d){
     id: b.id || genId(),
     x: Math.max(0, b.x|0), y: Math.max(0, b.y|0),
     w: Math.max(1, b.w|0), h: Math.max(1, b.h|0),
-    title: typeof b.title === 'string' ? b.title : '',
+    // v1移行: タイトルのみ→text=title / メモのみ→text=memo / 両方→改行で連結
+    text: typeof b.text === 'string' ? b.text
+        : [b.title, b.memo].filter(s => typeof s === 'string' && s !== '').join('\n'),
     color: COLOR_IDS.includes(b.color) ? b.color : 'green',
-    memo: typeof b.memo === 'string' ? b.memo : '',
     marks: Array.isArray(b.marks) ? b.marks : [],
     thumb: b.thumb ?? null
   }));
+  d.version = 2;
   return d;
+}
+// version 1データを読み込む時は、変換前の生データを旧docsストアに退避してから
+// 変換する（Phase 3のマイグレーションと同じ「消失事故を絶対に起こさない」方針）
+async function backupV1(name, doc){
+  try{
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(doc)), 'v1-backup:' + name);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }catch(e){
+    console.warn('v1バックアップに失敗:', e);
+  }
+}
+async function migrateDoc(name, doc){
+  if (doc && Array.isArray(doc.boards) && doc.version !== 2) await backupV1(name, doc);
+  return normalizeDoc(doc);
 }
 
 /* ---------- 状態 ---------- */
@@ -856,10 +890,10 @@ const state = {
   marquee: null,   // 範囲選択（ラバーバンド）中
   drag: null,      // 移動ドラッグ中（複数選択時はグループごと）
   resize: null,    // リサイズ中
-  editing: null,   // タイトル編集中 { id }
-  memoEdit: null,  // メモ編集モーダル表示中 { id }
-  placing: null,   // コピーの配置先選択中 { proto, gx, gy, valid }
-  hoverId: null    // マウスホバー中のブロック（メモポップオーバー用）
+  editing: null,   // その場エディタで編集中 { id }
+  placing: null,   // コピーの配置先選択中 { items, gx, gy, valid }
+  hoverId: null,   // マウスホバー中のブロック（全文ツールチップ用）
+  hoverReady: false // ホバー表示遅延（300ms）が経過したか
 };
 let cell = 64;     // 1マスのpxサイズ（renderAllで再計算）
 window.__plotboard = state; // 動作確認・デバッグ用フック
@@ -871,11 +905,12 @@ const getBlock = id => blocks().find(b => b.id === id);
 /* ---------- DOM参照 ---------- */
 const $ = id => document.getElementById(id);
 const scroller = $('scroller'), boardWrap = $('boardWrap'), gridEl = $('grid');
-const ghostEl = $('ghost'), marqueeEl = $('marquee'), titleInput = $('titleInput');
+const ghostEl = $('ghost'), marqueeEl = $('marquee'), editorTa = $('editorTa');
 const toolbarEl = $('toolbar'), swatchesEl = $('swatches'), delBtn = $('delBtn');
 const starBtn = $('starBtn'), flagBtn = $('flagBtn');
-const memoBtn = $('memoBtn'), copyBtn = $('copyBtn');
-const memoPop = $('memoPop'), memoModal = $('memoModal'), memoTa = $('memoTa');
+const editBtn = $('editBtn'), copyBtn = $('copyBtn');
+const tooltipEl = $('tooltip'), mobilePreviewEl = $('mobilePreview');
+const settingsBtn = $('settingsBtn'), settingsModal = $('settingsModal');
 const placeHint = $('placeHint');
 const titleView = $('titleView'), boardView = $('boardView');
 const titleListEl = $('titleList'), boardTitleEl = $('boardTitle');
@@ -1022,14 +1057,14 @@ function renderAll(){
   gridEl.style.height = gh + 'px';
   gridEl.style.backgroundSize = `${cell}px ${cell}px`;
 
-  // ブロック再構築
+  // ブロック再構築（クリップ判定に実寸が要るため、DOM追加後にレイアウト）
   for (const el of blockEls.values()) el.remove();
   blockEls.clear();
   for (const b of blocks()){
     const el = makeBlockEl(b.id);
     blockEls.set(b.id, el);
-    layoutBlock(b);
     gridEl.appendChild(el);
+    layoutBlock(b);
   }
 
   // 列コントロールは右端の垂直中央、行コントロールは下端の左寄せ
@@ -1042,9 +1077,10 @@ function renderAll(){
 
   updateEdgeControls();
   updateToolbar();
-  updateMemoPop();
+  updateTextPreview();
 }
 
+let hoverTimer = null;
 function makeBlockEl(id){
   const el = document.createElement('div');
   el.dataset.id = id;
@@ -1052,28 +1088,37 @@ function makeBlockEl(id){
   body.className = 'block-body';
   const title = document.createElement('div');
   title.className = 'block-title';
-  const memo = document.createElement('div');
-  memo.className = 'block-memo';
-  body.append(title, memo);
+  const rest = document.createElement('div');
+  rest.className = 'block-rest';
+  body.append(title, rest);
   const marks = document.createElement('div');
   marks.className = 'block-marks';
-  const dot = document.createElement('div');
-  dot.className = 'memo-dot';
+  const more = document.createElement('div');
+  more.className = 'block-more';
+  more.textContent = '…';
   const handle = document.createElement('div');
   handle.className = 'handle';
-  el.append(body, marks, dot, handle);
+  el.append(body, marks, more, handle);
   el.addEventListener('pointerdown', onBlockPointerDown);
   handle.addEventListener('pointerdown', onHandlePointerDown);
-  // PC: カーソルを合わせるとメモがポップオーバー表示
+  // PC: クリップされたブロックにカーソルを合わせると全文ツールチップ（300ms遅延）
   el.addEventListener('pointerenter', e => {
     if (e.pointerType !== 'mouse') return;
     state.hoverId = id;
-    updateMemoPop();
+    state.hoverReady = false;
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      if (state.hoverId !== id) return;
+      state.hoverReady = true;
+      updateTextPreview();
+    }, 300);
+    updateTextPreview();
   });
   el.addEventListener('pointerleave', e => {
     if (e.pointerType !== 'mouse') return;
-    if (state.hoverId === id) state.hoverId = null;
-    updateMemoPop();
+    clearTimeout(hoverTimer);
+    if (state.hoverId === id){ state.hoverId = null; state.hoverReady = false; }
+    updateTextPreview();
   });
   return el;
 }
@@ -1089,9 +1134,10 @@ function layoutBlock(b){
   el.style.top = (b.y * cell + 2) + 'px';
   el.style.width = (b.w * cell - 4) + 'px';
   el.style.height = (b.h * cell - 4) + 'px';
-  el.querySelector('.block-title').textContent = b.title;
-  // メモ冒頭をブロックの空きスペースに表示（あふれた分はクリップ）
-  el.querySelector('.block-memo').textContent = b.memo;
+  // 1行目=タイトル強調、2行目以降は入る分だけ表示（あふれはクリップ）
+  const [t, rest] = splitText(b.text);
+  el.querySelector('.block-title').textContent = t;
+  el.querySelector('.block-rest').textContent = rest;
   // マーク（★/フラッグ）バッジ
   const marksEl = el.querySelector('.block-marks');
   marksEl.textContent = '';
@@ -1102,8 +1148,16 @@ function layoutBlock(b){
     else continue;
     marksEl.appendChild(s);
   }
-  // メモありインジケータ
-  el.querySelector('.memo-dot').hidden = !b.memo;
+  // クリップされている時だけ「まだある」表示
+  el.querySelector('.block-more').hidden = !isClipped(b.id);
+}
+
+// ブロック内にテキストが収まりきっていないか（要素がDOM上にある前提）
+function isClipped(id){
+  const el = blockEls.get(id);
+  if (!el) return false;
+  const body = el.querySelector('.block-body');
+  return body.scrollHeight > body.clientHeight + 1;
 }
 
 /* ---------- 選択・ツールバー ---------- */
@@ -1119,7 +1173,7 @@ function setSelection(ids){
   }
   disarmDelete();
   updateToolbar();
-  updateMemoPop();
+  updateTextPreview();
 }
 function select(id){ setSelection(id ? [id] : []); }
 function deselect(){ setSelection([]); }
@@ -1139,6 +1193,20 @@ for (const c of COLOR_IDS){
   swatchesEl.appendChild(btn);
 }
 
+/* ツールバーの配置分岐:
+ * pointer: fine → boardWrap内に移して選択ブロック近傍のフローティング
+ * pointer: coarse → 従来どおり画面下部固定（body直下） */
+function placeToolbar(){
+  const fine = finePointer();
+  toolbarEl.classList.toggle('floating', fine);
+  if (fine && toolbarEl.parentElement !== boardWrap) boardWrap.appendChild(toolbarEl);
+  if (!fine && toolbarEl.parentElement !== document.body){
+    toolbarEl.style.left = '';
+    toolbarEl.style.top = '';
+    document.body.appendChild(toolbarEl);
+  }
+}
+
 function updateToolbar(){
   const sel = selectedBlocks();
   // 範囲選択のドラッグ中はまだ出さない（確定時に表示）
@@ -1149,8 +1217,22 @@ function updateToolbar(){
   }
   starBtn.classList.toggle('active', sel.every(b => b.marks.includes('star')));
   flagBtn.classList.toggle('active', sel.every(b => b.marks.includes('flag')));
-  memoBtn.disabled = sel.length !== 1; // メモは単一選択のみ
+  editBtn.disabled = sel.length !== 1; // テキスト編集は単一選択のみ
   if (!delBtn.classList.contains('armed')) delBtn.textContent = delLabel();
+  // フローティング時は選択範囲の近傍（上、入らなければ下）に配置。
+  // 画面隅のブロックでもはみ出さないようboardWrap内にクランプ
+  if (toolbarEl.classList.contains('floating')){
+    const PAD = 18; // boardWrapの上・左padding
+    const minX = Math.min(...sel.map(b => b.x)) * cell;
+    const minY = Math.min(...sel.map(b => b.y)) * cell;
+    const maxY = Math.max(...sel.map(b => b.y + b.h)) * cell;
+    const tw = toolbarEl.offsetWidth, th = toolbarEl.offsetHeight;
+    const left = clamp(PAD + minX, 4, Math.max(4, boardWrap.clientWidth - tw - 4));
+    let top = PAD + minY - th - 10;
+    if (top < 4) top = PAD + maxY + 10;
+    toolbarEl.style.left = left + 'px';
+    toolbarEl.style.top = top + 'px';
+  }
 }
 
 /* ---------- マーク（★/フラッグ） ----------
@@ -1171,77 +1253,114 @@ function toggleMark(kind){
 starBtn.addEventListener('click', () => toggleMark('star'));
 flagBtn.addEventListener('click', () => toggleMark('flag'));
 
-/* ---------- メモ ----------
- * PC: ホバーでポップオーバー表示（読み取り専用）
- * 選択中: ポップオーバー + 編集ボタン、ツールバーの「メモ」からも編集
- * 編集はモーダル（テキストエリアのみのシンプル構成・リッチエディタなし） */
-function updateMemoPop(){
-  const selId = singleSelId(); // ポップオーバーは単一選択時のみ
-  const targetId = state.hoverId || selId;
-  const b = targetId ? getBlock(targetId) : null;
-  const readonly = !!b && targetId !== selId;
-  // ホバー（読み取り専用）はメモがある時だけ。選択中はメモが無くても
-  // 「メモを編集」ボタンを出すため常に表示する
-  if (!b || state.drag || state.resize || state.placing || state.marquee ||
-      state.editing || state.memoEdit || (readonly && !b.memo)){
-    memoPop.hidden = true;
-    return;
+/* ---------- 全文プレビュー ----------
+ * PC: クリップされたブロックへのホバーで表示専用ツールチップ。操作要素を
+ *     一切含まないため、ボタンを押しに行く途中で消える問題が構造的に無い
+ * モバイル: 選択中ブロックがクリップされていれば画面下部に全文パネル */
+function fillTextEls(el, text){
+  const [t, rest] = splitText(text);
+  el.textContent = '';
+  const tEl = document.createElement('div');
+  tEl.className = 'tt-title';
+  tEl.textContent = t;
+  el.appendChild(tEl);
+  if (rest){
+    const rEl = document.createElement('div');
+    rEl.textContent = rest;
+    el.appendChild(rEl);
   }
-  memoPop.classList.toggle('readonly', readonly);
-  const textEl = memoPop.querySelector('.memo-text');
-  textEl.textContent = b.memo;
-  textEl.hidden = !b.memo;
-  memoPop.dataset.id = b.id;
-  memoPop.hidden = false;
-  // ブロックの上に表示。入らなければ下に
-  const g = board().grid;
-  const left = clamp(b.x * cell, 0, Math.max(0, g.cols * cell - memoPop.offsetWidth - 4));
-  let top = b.y * cell - memoPop.offsetHeight - 9;
-  if (top < 2) top = (b.y + b.h) * cell + 9;
-  memoPop.style.left = left + 'px';
-  memoPop.style.top = top + 'px';
 }
-memoPop.addEventListener('pointerdown', e => e.stopPropagation());
-memoPop.querySelector('.memo-edit').addEventListener('click', () => {
-  openMemoModal(memoPop.dataset.id);
-});
-memoBtn.addEventListener('click', () => openMemoModal(singleSelId()));
+function updateTextPreview(){
+  const busy = state.drag || state.resize || state.placing || state.marquee || state.editing;
+  // PCツールチップ（300ms遅延後・クリップされている時のみ）
+  const hb = (!busy && state.hoverReady && state.hoverId) ? getBlock(state.hoverId) : null;
+  if (hb && isClipped(hb.id)){
+    fillTextEls(tooltipEl, hb.text);
+    tooltipEl.hidden = false;
+    // ブロックの上に表示。入らなければ下に
+    const g = board().grid;
+    const left = clamp(hb.x * cell, 0, Math.max(0, g.cols * cell - tooltipEl.offsetWidth - 4));
+    let top = hb.y * cell - tooltipEl.offsetHeight - 9;
+    if (top < 2) top = (hb.y + hb.h) * cell + 9;
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top = top + 'px';
+  } else {
+    tooltipEl.hidden = true;
+  }
+  // モバイル全文パネル（タップで全文が読める）。下部ツールバーの上に出す
+  const sb = (!busy && !finePointer()) ? getBlock(singleSelId()) : null;
+  if (sb && isClipped(sb.id)){
+    fillTextEls(mobilePreviewEl, sb.text);
+    mobilePreviewEl.style.bottom = (toolbarEl.offsetHeight + 28) + 'px';
+    mobilePreviewEl.hidden = false;
+  } else {
+    mobilePreviewEl.hidden = true;
+  }
+}
 
-function openMemoModal(id){
+/* ---------- その場編集（ポップオーバーエディタ） ----------
+ * ブロックに重なって浮かぶtextarea。モーダルへのカーソル大移動を無くす。
+ * 確定: 外側クリック / Esc / （設定により）Shift+Enter。
+ * キャンセル(破棄)は事故のもとなので持たない（Escも確定扱い）。undoは将来課題 */
+function openEditor(id){
   const b = getBlock(id);
   if (!b) return;
-  state.memoEdit = { id };
-  $('memoModalTitle').textContent = 'メモ: ' + (b.title || '無題');
-  memoTa.value = b.memo;
-  memoModal.hidden = false;
-  updateMemoPop();
-  memoTa.focus();
+  commitEditor(); // 別ブロックを編集中なら先に確定
+  state.editing = { id };
+  editorTa.value = b.text;
+  editorTa.className = 'color-' + b.color; // ブロックが膨らんだ印象に色を引き継ぐ
+  const g = board().grid;
+  const width = clamp(Math.max(b.w * cell - 4, 170), 100, g.cols * cell - 8);
+  const left = clamp(b.x * cell + 2, 0, Math.max(0, g.cols * cell - width - 4));
+  editorTa.style.left = left + 'px';
+  editorTa.style.top = (b.y * cell + 2) + 'px';
+  editorTa.style.width = width + 'px';
+  editorTa.hidden = false;
+  autosizeEditor();
+  editorTa.focus();
+  editorTa.setSelectionRange(editorTa.value.length, editorTa.value.length);
+  editorTa.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  updateTextPreview();
 }
-function closeMemoModal(save){
-  if (memoModal.hidden) return;
-  const ed = state.memoEdit;
-  state.memoEdit = null;
-  memoModal.hidden = true;
-  if (save && ed){
-    const b = getBlock(ed.id);
-    if (b && b.memo !== memoTa.value){
-      b.memo = memoTa.value;
-      layoutBlock(b);
-      scheduleSave();
-    }
+// 最小サイズ=ブロックの現寸を保証しつつ、内容に応じて下に拡張
+function autosizeEditor(){
+  const ed = state.editing;
+  if (!ed) return;
+  const b = getBlock(ed.id);
+  const minH = b ? b.h * cell - 4 : 40;
+  editorTa.style.height = 'auto';
+  editorTa.style.height = Math.max(minH, editorTa.scrollHeight + 2) + 'px';
+}
+function commitEditor(){
+  if (!state.editing) return;
+  const b = getBlock(state.editing.id);
+  state.editing = null;
+  editorTa.hidden = true;
+  if (b && b.text !== editorTa.value){
+    b.text = editorTa.value;
+    layoutBlock(b);
+    scheduleSave();
   }
-  updateMemoPop();
+  updateTextPreview();
 }
-$('memoSave').addEventListener('click', () => closeMemoModal(true));
-$('memoCancel').addEventListener('click', () => closeMemoModal(false));
-memoModal.addEventListener('pointerdown', e => {
-  if (e.target === memoModal) closeMemoModal(false); // 背景タップで閉じる
-});
-memoTa.addEventListener('keydown', e => {
+editorTa.addEventListener('input', autosizeEditor);
+editorTa.addEventListener('pointerdown', e => e.stopPropagation());
+editorTa.addEventListener('blur', commitEditor);
+editorTa.addEventListener('keydown', e => {
   e.stopPropagation();
-  if (e.key === 'Escape') closeMemoModal(false);
-  else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) closeMemoModal(true);
+  if (e.key === 'Escape'){
+    commitEditor(); // Escも確定扱い
+  } else if (e.key === 'Enter' && e.shiftKey &&
+             getSetting('editorConfirmKey') === 'shift-enter'){
+    e.preventDefault();
+    commitEditor();
+  }
 });
+// エディタの外側をポインタダウンしたら確定
+document.addEventListener('pointerdown', e => {
+  if (state.editing && e.target !== editorTa) commitEditor();
+});
+editBtn.addEventListener('click', () => openEditor(singleSelId()));
 
 /* ---------- コピー（複製直後は配置先選択モード） ----------
  * 複数選択時は相対位置を保ったままグループごと複製・配置する */
@@ -1266,12 +1385,13 @@ copyBtn.addEventListener('click', () => {
     el.className = 'block placing-preview color-' + it.proto.color;
     const pbody = document.createElement('div');
     pbody.className = 'block-body';
+    const [pt, prest] = splitText(it.proto.text);
     const t = document.createElement('div');
     t.className = 'block-title';
-    t.textContent = it.proto.title;
+    t.textContent = pt;
     const pm = document.createElement('div');
-    pm.className = 'block-memo';
-    pm.textContent = it.proto.memo;
+    pm.className = 'block-rest';
+    pm.textContent = prest;
     pbody.append(t, pm);
     el.appendChild(pbody);
     el.style.left = ((minX + it.rx) * cell + 2) + 'px';
@@ -1285,7 +1405,7 @@ copyBtn.addEventListener('click', () => {
   showGhosts(items.map(it => ({ x: minX + it.rx, y: minY + it.ry,
                                 w: it.proto.w, h: it.proto.h })), false);
   placeHint.hidden = false;
-  updateMemoPop();
+  updateTextPreview();
 });
 
 function movePlacing(clientX, clientY){
@@ -1368,7 +1488,7 @@ delBtn.addEventListener('click', () => {
   disarmDelete();
   updateToolbar();
   updateEdgeControls();
-  updateMemoPop();
+  updateTextPreview();
   scheduleSave();
 });
 
@@ -1427,7 +1547,7 @@ function onBlockPointerDown(e){
       state.marquee || state.pendingMarquee) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   const id = e.currentTarget.dataset.id;
-  commitTitleEdit();
+  commitEditor();
   const rect = e.currentTarget.getBoundingClientRect();
   const s = {
     id,
@@ -1468,7 +1588,7 @@ function startDrag(s){
   };
   try{ el.setPointerCapture(s.pointerId); }catch(_){}
   for (const m of state.drag.members) blockEls.get(m.id)?.classList.add('dragging');
-  updateMemoPop(); // ドラッグ中はポップオーバーを隠す
+  updateTextPreview(); // ドラッグ中はポップオーバーを隠す
   showGhosts(state.drag.members.map(m =>
     ({ x: b.x + m.rx, y: b.y + m.ry, w: m.w, h: m.h })), true);
   if (navigator.vibrate) navigator.vibrate(10);
@@ -1532,7 +1652,7 @@ function endDrag(cancelled){
   }
   if (apply) scheduleSave();
   updateEdgeControls();
-  updateMemoPop();
+  updateTextPreview();
 }
 
 /* ---------- リサイズ（右下ハンドル） ---------- */
@@ -1543,10 +1663,10 @@ function onHandlePointerDown(e){
   const id = e.currentTarget.parentElement.dataset.id;
   const b = getBlock(id);
   if (!b) return;
-  commitTitleEdit();
+  commitEditor();
   state.resize = { id, pointerId: e.pointerId, w: b.w, h: b.h, valid: true, moved: false };
   try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
-  updateMemoPop();
+  updateTextPreview();
   showGhost(b.x, b.y, b.w, b.h, true);
 }
 
@@ -1584,7 +1704,7 @@ function endResize(cancelled){
   layoutBlock(b);
   setTimeout(() => el.classList.remove('settle'), 160);
   updateEdgeControls();
-  updateMemoPop();
+  updateTextPreview();
 }
 
 /* ---------- 範囲選択（空きマスからのドラッグで複数選択） ----------
@@ -1612,7 +1732,7 @@ gridEl.addEventListener('pointerdown', e => {
 
 function startMarquee(s){
   state.pendingMarquee = null;
-  commitTitleEdit();
+  commitEditor();
   deselect();
   state.marquee = { pointerId: s.pointerId, startX: s.startX, startY: s.startY };
   try{ gridEl.setPointerCapture(s.pointerId); }catch(_){}
@@ -1622,7 +1742,7 @@ function startMarquee(s){
   marqueeEl.style.width = '0px';
   marqueeEl.style.height = '0px';
   marqueeEl.hidden = false;
-  updateMemoPop();
+  updateTextPreview();
   if (navigator.vibrate) navigator.vibrate(10);
 }
 
@@ -1653,7 +1773,7 @@ function endMarquee(cancelled){
   try{ gridEl.releasePointerCapture(m.pointerId); }catch(_){}
   if (cancelled) deselect();
   updateToolbar(); // 選択があればここで初めてツールバーを出す
-  updateMemoPop();
+  updateTextPreview();
 }
 
 /* ---------- ポインタの共通ハンドラ ---------- */
@@ -1702,10 +1822,10 @@ window.addEventListener('pointerup', e => {
   if (s && e.pointerId === s.pointerId){
     clearTimeout(s.lpTimer);
     state.pending = null;
-    // ドラッグに至らないタップ/クリック → 選択。選択済みならタイトル編集
+    // ドラッグに至らないタップ/クリック → 選択。選択済みならその場エディタを開く
     const wasSelected = singleSelId() === s.id;
     select(s.id);
-    if (wasSelected) startTitleEdit(s.id);
+    if (wasSelected) openEditor(s.id);
   }
 });
 
@@ -1746,7 +1866,7 @@ gridEl.addEventListener('pointerup', e => {
     createBlockAt(e.clientX, e.clientY);
   } else {
     lastTap = { t: now, x: e.clientX, y: e.clientY };
-    commitTitleEdit();
+    commitEditor();
     deselect();
   }
 });
@@ -1771,65 +1891,41 @@ function createBlockAt(clientX, clientY){
   select(b.id);
   updateEdgeControls();
   scheduleSave();
-  startTitleEdit(b.id); // 生成直後にタイトル入力状態へ
+  openEditor(b.id); // 生成直後にその場エディタを開く
 }
-
-/* ---------- タイトルのインライン編集 ---------- */
-function startTitleEdit(id){
-  const b = getBlock(id);
-  if (!b) return;
-  state.editing = { id };
-  titleInput.value = b.title;
-  // マスが小さくても入力できる最小幅を確保（グリッド内に収める）
-  const g = board().grid;
-  const width = Math.max(120, b.w * cell - 8);
-  const left = clamp(b.x * cell + 4, 0, Math.max(0, g.cols * cell - width - 4));
-  titleInput.style.left = left + 'px';
-  titleInput.style.top = (b.y * cell + 4) + 'px';
-  titleInput.style.width = width + 'px';
-  titleInput.hidden = false;
-  titleInput.focus();
-  titleInput.select();
-  updateMemoPop();
-}
-function commitTitleEdit(){
-  if (!state.editing) return;
-  const b = getBlock(state.editing.id);
-  state.editing = null;
-  titleInput.hidden = true;
-  if (b && b.title !== titleInput.value.trim()){
-    b.title = titleInput.value.trim();
-    layoutBlock(b);
-    scheduleSave();
-  }
-  updateMemoPop();
-}
-function cancelTitleEdit(){
-  state.editing = null;
-  titleInput.hidden = true;
-  updateMemoPop();
-}
-titleInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') commitTitleEdit();
-  else if (e.key === 'Escape') cancelTitleEdit();
-});
-titleInput.addEventListener('blur', commitTitleEdit);
-titleInput.addEventListener('pointerdown', e => e.stopPropagation());
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (state.memoEdit) closeMemoModal(false);
+  if (!settingsModal.hidden) settingsModal.hidden = true;
+  else if (state.editing) commitEditor(); // Escも確定扱い
   else if (state.placing) cancelPlacing();
-  else if (!state.editing) deselect();
+  else deselect();
+});
+
+/* ---------- 設定パネル ---------- */
+settingsBtn.addEventListener('click', () => {
+  for (const r of settingsModal.querySelectorAll('input[name="confirmKey"]')){
+    r.checked = r.value === getSetting('editorConfirmKey');
+  }
+  settingsModal.hidden = false;
+});
+$('settingsClose').addEventListener('click', () => { settingsModal.hidden = true; });
+settingsModal.addEventListener('pointerdown', e => {
+  if (e.target === settingsModal) settingsModal.hidden = true; // 背景タップで閉じる
+});
+settingsModal.addEventListener('change', e => {
+  if (e.target.name === 'confirmKey') setSetting('editorConfirmKey', e.target.value);
 });
 
 /* ---------- リサイズ・回転対応 ---------- */
 let resizeRaf = null;
 window.addEventListener('resize', () => {
+  placeToolbar(); // ハイブリッド端末での入力環境変化に追従
   if (boardView.hidden) return;
   cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(renderAll);
 });
+placeToolbar();
 
 /* ============================================================
  * Phase 3: Dropbox同期（ストレージブリッジ経由・無改造で利用）
@@ -1969,7 +2065,7 @@ async function resolveConflict(choice){
       // クラウドの内容を読み込む（この端末の変更は破棄）
       const text = await storage.load(name + '.json');
       const meta = await dbxMeta(name);
-      rec.doc = normalizeDoc(JSON.parse(text));
+      rec.doc = await migrateDoc(name, JSON.parse(text));
       rec.doc.title = name;
       rec.rev = meta ? meta.rev : null;
       rec.dirty = false;
@@ -2215,13 +2311,16 @@ async function deleteTitle(it){
  * ============================================================ */
 async function openTitle(name){
   let rec = await idbTitleGet(name);
-  if (!rec){
+  if (rec){
+    // ローカル保存分が version 1 のままなら開くときに v2 へ変換（元データは退避）
+    rec.doc = await migrateDoc(name, rec.doc);
+  } else {
     // クラウドのみの作品 → ダウンロードしてローカル化
     if (!canCloud()) return;
     try{
       const text = await storage.load(name + '.json');
       const meta = await dbxMeta(name);
-      const doc = normalizeDoc(JSON.parse(text));
+      const doc = await migrateDoc(name, JSON.parse(text));
       doc.title = name;
       rec = {
         name, doc,
@@ -2258,7 +2357,7 @@ async function checkRemoteUpdate(name){
     if (rec.dirty){ openConflict(name, rec, meta); return; }
     const text = await storage.load(name + '.json');
     if (state.currentName !== name) return;
-    rec.doc = normalizeDoc(JSON.parse(text));
+    rec.doc = await migrateDoc(name, JSON.parse(text));
     rec.doc.title = name;
     rec.rev = meta.rev;
     rec.updatedAt = rec.doc.updatedAt || new Date().toISOString();
@@ -2275,9 +2374,8 @@ async function checkRemoteUpdate(name){
 
 async function showTitleView(){
   // ボードを離れる前に編集状態を閉じて保存・同期をフラッシュ
-  commitTitleEdit();
+  commitEditor();
   cancelPlacing();
-  closeMemoModal(false);
   deselect();
   if (saveTimer) await flushSave();
   const name = state.currentName;
