@@ -2272,18 +2272,48 @@ editorTa.addEventListener('paste', e => {
   }
 });
 
-// ファイルのドラッグ&ドロップ（ブロックまたはエディタへ・PC向け）
+// ファイルのドラッグ&ドロップ（ブロックまたはエディタへ・PC向け）。
+// 2系統を1つのパイプラインに合流させる:
+//   系統1: ローカルファイルのD&D（e.dataTransfer.files）
+//   系統2: Fileviewer窓からのD&D（text/plainにDropboxパスのJSON・Phase 4.5連携）
 gridEl.addEventListener('dragover', e => {
-  if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
+  const types = [...(e.dataTransfer?.types || [])];
+  // Fileviewerはtext/plainで渡す。preventDefaultしないとdropが発火しない（最重要）
+  if (types.includes('Files') || types.includes('text/plain')) e.preventDefault();
 });
-gridEl.addEventListener('drop', e => {
-  const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
-  if (!files.length) return;
-  e.preventDefault();
-  let id = state.editing?.id || null;      // エディタ（textarea/ストリップ）へのドロップ
+gridEl.addEventListener('drop', async e => {
+  // 添付先ブロックの特定（エディタ表示中はその対象、ブロック直下ならそのブロック）
+  let id = state.editing?.id || null;
   const blkEl = e.target.closest?.('.block');
-  if (blkEl) id = blkEl.dataset.id;        // ブロックへの直接ドロップ
-  if (id) addImagesToBlock(id, files);
+  if (blkEl) id = blkEl.dataset.id;
+
+  // 系統1: ローカルファイル（Phase 4本来のD&D）
+  const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
+  if (files.length){
+    e.preventDefault();
+    if (id) addImagesToBlock(id, files);
+    return;
+  }
+
+  // 系統2: Fileviewerからのペイロード。dataTransferはawait後に無効化されるため
+  // 文字列の取り出しとpreventDefaultは同期的に済ませる
+  const text = e.dataTransfer?.getData('text/plain');
+  if (!text) return;
+  let payload;
+  try{ payload = JSON.parse(text); }catch{ return; } // ただの文字列や外部URLは無視
+  if (payload?.source !== 'fileviewer' || !payload.dropboxPath) return;
+  e.preventDefault();
+  if (!id) return;
+  if (!canCloud()){ alert('Fileviewerからの取り込みにはDropbox接続が必要です'); return; }
+  try{
+    // Dropbox原本を取得 → 既存の画像追加パイプライン（縮小・WebP化・保存・キャッシュ・
+    // 遅延アップロード）へ合流。取り込み後は原本と切り離される
+    const r = await storage._contentDownload(payload.dropboxPath);
+    const blob = new Blob([await r.arrayBuffer()], { type: imgMime(payload.name || payload.dropboxPath) });
+    await addImagesToBlock(id, [blob]);
+  }catch(err){
+    console.warn('[fileviewer] 取り込みに失敗:', err);
+  }
 });
 
 /* ---- ライトボックス（拡大表示。クリック / Escで閉じる） ---- */
