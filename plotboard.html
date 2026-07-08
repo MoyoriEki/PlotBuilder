@@ -660,7 +660,9 @@ header h1{
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;  /* 縦長ページを切らず全面表示（帯に収める） */
+  /* 空きスペースをフルに埋める（ブロック上は一覧性優先で全面充填）。
+     縦長ページの切り取られた部分はホバー/拡大表示で全面確認できる */
+  object-fit: cover;
   object-position: center;
   border-radius: 3px;
   background: rgba(255,255,255,.45); /* 読み込み中プレースホルダ */
@@ -1129,7 +1131,11 @@ const DEFAULT_PALETTE = {
   orange:   { bg:'#fbd6a2', border:'#e0a25c', fg:'#754409' },
   gray:     { bg:'#dce0e4', border:'#a8b1b9', fg:'#39434c' }
 };
-const CELL_MIN = 22, CELL_MAX = 48;   // マスの実サイズ範囲(px)。旧値の半分（縦横半分＝面積1/4）
+// マスの実サイズ範囲(px)。グリッド細分化(1マス=旧マスの1/4)に合わせ、
+// 見た目の寸法を保つため旧値のさらに半分にしている（基準2×2マス=旧1マス=22〜48px）
+const CELL_MIN = 11, CELL_MAX = 24;
+// 新規ブロック・基準の既定サイズ（細分化後の2×2マス＝旧1マス相当）
+const BASE_UNIT = 2;
 // 表示倍率(ズーム)のステップ。100%=画面幅フィット。PCで小さすぎるとき拡大するための機能
 const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 // ブロック文字サイズ設定はスライダーで数値指定（基準フォントへの倍率）。
@@ -1139,8 +1145,8 @@ const FONT_SCALES = { small: 0.85, standard: 1, large: 1.2, xlarge: 1.45 };
 // 画像サムネの高さ(px)の可変範囲と既定値（幅は--thumb-arから算出）。設定パネルのスライダーで変更
 const ED_THUMB_MIN = 72, ED_THUMB_MAX = 320, ED_THUMB_DEFAULT = 120; // エディタの画像ストリップ
 const TT_THUMB_MIN = 80, TT_THUMB_MAX = 480, TT_THUMB_DEFAULT = 180; // ホバー時ツールチップ
-const CELL_ZMIN = 12, CELL_ZMAX = 200; // ズーム適用後のマス実サイズの下限・上限(px)
-const MAX_COLS = 60, MAX_ROWS = 60;
+const CELL_ZMIN = 6, CELL_ZMAX = 100; // ズーム適用後のマス実サイズの下限・上限(px)。細分化に合わせ半分
+const MAX_COLS = 120, MAX_ROWS = 120;  // 細分化(×2)に合わせ上限も倍。旧最大60マス=新120マス
 const LONG_PRESS_MS = 300;            // モバイル長押しドラッグ開始
 const DRAG_START_PX = 4;              // マウスのドラッグ開始しきい値
 const LP_CANCEL_PX  = 10;             // 長押し前にこの距離動いたらスクロール扱い
@@ -1217,17 +1223,19 @@ function genId(){ return 'blk-' + Math.random().toString(36).slice(2, 10); }
 function newDoc(name){
   // 縦長デフォルト（モバイル配慮の縦長ファースト方針。以降のUIも縦長を優先して設計する）
   return {
-    version: 3,
+    version: 4,
     title: name || '無題',
     updatedAt: null,  // ISO文字列。保存のたびに更新
     device: null,     // 最終更新した端末の識別子
-    boards: [{ id: 'board-1', grid: { cols: 6, rows: 12 }, blocks: [] }]
+    // v4: グリッド細分化。マスは旧の縦横半分（基準2×2マス=旧1マス）。旧6×12 → 12×24
+    boards: [{ id: 'board-1', grid: { cols: 6 * BASE_UNIT, rows: 12 * BASE_UNIT }, blocks: [] }]
   };
 }
 function newBlock(x, y){
   // version 2: title/memo を text に統一（1行目=タイトルとして表示）
   // version 3: thumb(未使用)を廃止し images(ファイル名の配列。1枚目=サムネ)を追加
-  return { id: genId(), x, y, w: 1, h: 1,
+  // version 4: 既定サイズは基準の2×2マス（=旧1マス相当）
+  return { id: genId(), x, y, w: BASE_UNIT, h: BASE_UNIT,
            text: '', color: 'green', marks: [], images: [] };
 }
 // textを「1行目（タイトル）」と「2行目以降」に分割
@@ -1235,22 +1243,27 @@ function splitText(text){
   const i = text.indexOf('\n');
   return i < 0 ? [text, ''] : [text.slice(0, i), text.slice(i + 1)];
 }
-// 復元データの欠損フィールドを補い、旧バージョンは段階変換で version 3 へ:
+// 復元データの欠損フィールドを補い、旧バージョンは段階変換で version 4 へ:
 // v1（title/memo分離）→ text = title + "\n" + memo に統合（v2）
 // v2（thumb未使用）  → thumbを廃止し images 配列へ（v3）
+// v3（旧マス目盛り）  → グリッド細分化。全座標・グリッドを2倍して見た目の寸法を保つ（v4）
 function normalizeDoc(d){
   if (!d || !Array.isArray(d.boards) || !d.boards[0]) return newDoc();
   d.title = typeof d.title === 'string' ? d.title : '無題';
   d.updatedAt = typeof d.updatedAt === 'string' ? d.updatedAt : null;
   d.device = typeof d.device === 'string' ? d.device : null;
+  // v3以前は旧マス目盛り。細分化スケール(v4)へ移す際、全座標・グリッドをBASE_UNIT倍する。
+  // これで「全マスが1/4サイズ」にならず、見た目の寸法を保ったまま目盛りだけ細かくなる。
+  // 既にv4のデータは係数1（=非変換）なので二重適用されない（冪等）
+  const sc = Number(d.version) >= 4 ? 1 : BASE_UNIT;
   const bd = d.boards[0];
   if (!bd.grid || !(bd.grid.cols >= 1) || !(bd.grid.rows >= 1)) bd.grid = { cols: 6, rows: 12 };
-  bd.grid.cols = Math.min(MAX_COLS, Math.floor(bd.grid.cols));
-  bd.grid.rows = Math.min(MAX_ROWS, Math.floor(bd.grid.rows));
+  bd.grid.cols = Math.min(MAX_COLS, Math.max(1, Math.floor(bd.grid.cols) * sc));
+  bd.grid.rows = Math.min(MAX_ROWS, Math.max(1, Math.floor(bd.grid.rows) * sc));
   bd.blocks = (Array.isArray(bd.blocks) ? bd.blocks : []).map(b => ({
     id: b.id || genId(),
-    x: Math.max(0, b.x|0), y: Math.max(0, b.y|0),
-    w: Math.max(1, b.w|0), h: Math.max(1, b.h|0),
+    x: Math.max(0, b.x|0) * sc, y: Math.max(0, b.y|0) * sc,
+    w: Math.max(1, b.w|0) * sc, h: Math.max(1, b.h|0) * sc,
     // v1移行: タイトルのみ→text=title / メモのみ→text=memo / 両方→改行で連結
     text: typeof b.text === 'string' ? b.text
         : [b.title, b.memo].filter(s => typeof s === 'string' && s !== '').join('\n'),
@@ -1261,14 +1274,14 @@ function normalizeDoc(d){
       ? b.images.filter(s => typeof s === 'string' && s !== '')
       : (typeof b.thumb === 'string' && b.thumb !== '' ? [b.thumb] : [])
   }));
-  d.version = 3;
+  d.version = 4;
   return d;
 }
 // 旧バージョンのデータを読み込む時は、変換前の生データを旧docsストアに退避して
 // から変換する（Phase 3のマイグレーションと同じ「消失事故を絶対に起こさない」方針）
 async function backupOldVersion(name, doc){
   try{
-    const ver = doc.version === 2 ? 2 : 1;
+    const ver = (doc.version >= 1 && doc.version <= 3) ? doc.version : 1;
     const db = await openDB();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
@@ -1281,7 +1294,7 @@ async function backupOldVersion(name, doc){
   }
 }
 async function migrateDoc(name, doc){
-  if (doc && Array.isArray(doc.boards) && doc.version !== 3) await backupOldVersion(name, doc);
+  if (doc && Array.isArray(doc.boards) && Number(doc.version) < 4) await backupOldVersion(name, doc);
   return normalizeDoc(doc);
 }
 
@@ -1647,23 +1660,26 @@ function layoutBlock(b){
     padEl.style.width = '0px';
     padEl.style.height = '0px';
   }
-  // 画像サムネイル（1枚目）。タイトルの可読性を最優先し、タイトル行の下に
-  // 十分な高さが残る時だけ帯状に表示。入らない小ブロックでは左下の小さな
-  // アイコン表示に退避する（1×1でも破綻しない）
+  // 画像サムネイル（1枚目）。タイトルと本文（2行目以降）を最優先で確保し、
+  // 残った“空きスペース”をサムネが常にフルに埋める（ブロック間で挙動が揃う）。
+  // 空きが足りない小ブロックでは左下の小さなアイコン表示に退避する（1×1でも破綻しない）
   const wrapEl = el.querySelector('.block-thumbwrap');
   const iconEl = el.querySelector('.block-imgicon');
   const imgs = b.images || [];
   if (imgs.length && state.currentName){
     const innerH = b.h * cell - 4 - 6;   // ブロック内側の高さ（padding 3px×2）
-    const innerW = b.w * cell - 4 - 10;  // 同・幅（padding 5px×2）
-    const avail = innerH - el.querySelector('.block-title').offsetHeight - 2;
-    const minBand = Math.max(16, Math.round(cell * 0.55));
+    const titleH = el.querySelector('.block-title').offsetHeight;
+    const restEl = el.querySelector('.block-rest');
+    // 本文が占める高さ（要素自身の高さ＝兄弟のサイズに依存しない）。これを避けて空きを埋める
+    const restH = restEl.textContent ? restEl.offsetHeight : 0;
+    const avail = innerH - titleH - restH - 4; // タイトル・本文・余白を除いた空き
+    const minBand = Math.max(20, Math.round(cell * 1.1));
     if (avail >= minBand){
       iconEl.hidden = true;
       wrapEl.hidden = false;
-      // 帯の高さ: 横幅の9:16相当を基準に、残り高さへクランプ
-      wrapEl.style.height =
-        Math.min(avail, Math.max(minBand, Math.round(innerW * 9 / 16))) + 'px';
+      // 空きスペースをフルに使う（画像は block-thumb 側の object-fit:cover で全面充填。
+      // 切り取られた部分はホバー/拡大表示で確認できる）
+      wrapEl.style.height = avail + 'px';
       setImgEl(el.querySelector('.block-thumb'), state.currentName, imgs[0]);
       const badge = el.querySelector('.thumb-badge');
       badge.hidden = imgs.length < 2;
@@ -2677,28 +2693,35 @@ delBtn.addEventListener('click', () => {
 });
 
 /* ---------- 行・列の追加/削除 ---------- */
+// 目盛りは細分化したが、盤面の増減は基準(2マス)単位で行い従来の操作感を保つ
 function updateEdgeControls(){
   const g = board().grid;
-  const lastColUsed = blocks().some(b => b.x + b.w >= g.cols);
-  const lastRowUsed = blocks().some(b => b.y + b.h >= g.rows);
+  const step = BASE_UNIT;
+  // 右端/下端の基準1マス分(step)にブロックが載っていなければ削除できる
+  const colFree = !blocks().some(b => b.x + b.w > g.cols - step);
+  const rowFree = !blocks().some(b => b.y + b.h > g.rows - step);
   colPlus.disabled = g.cols >= MAX_COLS;
   rowPlus.disabled = g.rows >= MAX_ROWS;
-  colMinus.disabled = g.cols <= 1 || lastColUsed;
-  rowMinus.disabled = g.rows <= 1 || lastRowUsed;
-  colMinus.title = colMinus.disabled && lastColUsed
+  colMinus.disabled = g.cols <= step || !colFree;
+  rowMinus.disabled = g.rows <= step || !rowFree;
+  colMinus.title = colMinus.disabled && !colFree
     ? 'ブロックが載っている列は削除できません' : '右端の列を削除';
-  rowMinus.title = rowMinus.disabled && lastRowUsed
+  rowMinus.title = rowMinus.disabled && !rowFree
     ? 'ブロックが載っている行は削除できません' : '下端の行を削除';
 }
-colPlus.addEventListener('click', () => { board().grid.cols++; renderAll(); scheduleSave(); });
-rowPlus.addEventListener('click', () => { board().grid.rows++; renderAll(); scheduleSave(); });
+colPlus.addEventListener('click', () => {
+  board().grid.cols = Math.min(MAX_COLS, board().grid.cols + BASE_UNIT); renderAll(); scheduleSave();
+});
+rowPlus.addEventListener('click', () => {
+  board().grid.rows = Math.min(MAX_ROWS, board().grid.rows + BASE_UNIT); renderAll(); scheduleSave();
+});
 colMinus.addEventListener('click', () => {
   if (colMinus.disabled) return;
-  board().grid.cols--; renderAll(); scheduleSave();
+  board().grid.cols = Math.max(BASE_UNIT, board().grid.cols - BASE_UNIT); renderAll(); scheduleSave();
 });
 rowMinus.addEventListener('click', () => {
   if (rowMinus.disabled) return;
-  board().grid.rows--; renderAll(); scheduleSave();
+  board().grid.rows = Math.max(BASE_UNIT, board().grid.rows - BASE_UNIT); renderAll(); scheduleSave();
 });
 
 /* ---------- ゴースト（配置可否のリアルタイム表示） ----------
@@ -3058,11 +3081,14 @@ gridEl.addEventListener('pointerup', e => {
 function createBlockAt(clientX, clientY){
   const gr = gridEl.getBoundingClientRect();
   const g = board().grid;
-  const gx = clamp(Math.floor((clientX - gr.left) / cell), 0, g.cols - 1);
-  const gy = clamp(Math.floor((clientY - gr.top) / cell), 0, g.rows - 1);
-  if (!placementValid(gx, gy, 1, 1, null)){
+  // 既定サイズは基準の2×2マス。マス目が細かいので、置いた位置が枠に収まるよう
+  // 右端・下端でクランプする
+  const w = BASE_UNIT, h = BASE_UNIT;
+  const gx = clamp(Math.floor((clientX - gr.left) / cell), 0, g.cols - w);
+  const gy = clamp(Math.floor((clientY - gr.top) / cell), 0, g.rows - h);
+  if (!placementValid(gx, gy, w, h, null)){
     // 置けない位置は赤ゴーストを一瞬見せて知らせる
-    showGhost(gx, gy, 1, 1, false);
+    showGhost(gx, gy, w, h, false);
     setTimeout(hideGhost, 350);
     return;
   }
