@@ -653,16 +653,17 @@ header h1{
    タイトルの可読性を損なわない（入らない小ブロックはアイコン表示に退避） */
 .block-thumbwrap{
   position: relative;
-  margin-top: 2px;
+  /* 幅・高さはlayoutBlockが縦長比率で設定。ブロック内で中央寄せ */
+  margin: 2px auto 0;
 }
 .block-thumbwrap[hidden]{ display: none; }
 .block-thumb{
   display: block;
   width: 100%;
   height: 100%;
-  /* 空きスペースをフルに埋める（ブロック上は一覧性優先で全面充填）。
-     縦長ページの切り取られた部分はホバー/拡大表示で全面確認できる */
-  object-fit: cover;
+  /* 帯は縦長比率(√2)に整形済み。縦長ページはそこへほぼ一致して充填され、
+     比率が違う画像もcontainで切らずに全面表示（長方形を維持） */
+  object-fit: contain;
   object-position: center;
   border-radius: 3px;
   background: rgba(255,255,255,.45); /* 読み込み中プレースホルダ */
@@ -1661,25 +1662,31 @@ function layoutBlock(b){
     padEl.style.height = '0px';
   }
   // 画像サムネイル（1枚目）。タイトルと本文（2行目以降）を最優先で確保し、
-  // 残った“空きスペース”をサムネが常にフルに埋める（ブロック間で挙動が揃う）。
+  // 残った“空きスペース”に漫画ページ比率(縦長)のサムネを最大サイズで収める。
+  // 長方形（縦長）を維持したまま空きをできる限り使う（cover相当の切り取りはしない）。
   // 空きが足りない小ブロックでは左下の小さなアイコン表示に退避する（1×1でも破綻しない）
   const wrapEl = el.querySelector('.block-thumbwrap');
   const iconEl = el.querySelector('.block-imgicon');
   const imgs = b.images || [];
   if (imgs.length && state.currentName){
     const innerH = b.h * cell - 4 - 6;   // ブロック内側の高さ（padding 3px×2）
+    const innerW = b.w * cell - 4 - 10;  // 同・幅（padding 5px×2）
     const titleH = el.querySelector('.block-title').offsetHeight;
     const restEl = el.querySelector('.block-rest');
     // 本文が占める高さ（要素自身の高さ＝兄弟のサイズに依存しない）。これを避けて空きを埋める
     const restH = restEl.textContent ? restEl.offsetHeight : 0;
     const avail = innerH - titleH - restH - 4; // タイトル・本文・余白を除いた空き
     const minBand = Math.max(20, Math.round(cell * 1.1));
-    if (avail >= minBand){
+    if (avail >= minBand && innerW > 8){
       iconEl.hidden = true;
       wrapEl.hidden = false;
-      // 空きスペースをフルに使う（画像は block-thumb 側の object-fit:cover で全面充填。
-      // 切り取られた部分はホバー/拡大表示で確認できる）
-      wrapEl.style.height = avail + 'px';
+      // 空き(innerW × avail)に縦長ページ比率(√2)の長方形を最大サイズで内接させる。
+      // 幅=min(innerW, 高さ×比率)。高さは幅から算出し、必ずavail以内に収まる
+      const arWH = 1 / 1.414;                        // 幅/高さ（--thumb-ar と一致）
+      const tw = Math.min(innerW, Math.round(avail * arWH));
+      const th = Math.round(tw / arWH);
+      wrapEl.style.width = tw + 'px';
+      wrapEl.style.height = th + 'px';
       setImgEl(el.querySelector('.block-thumb'), state.currentName, imgs[0]);
       const badge = el.querySelector('.thumb-badge');
       badge.hidden = imgs.length < 2;
