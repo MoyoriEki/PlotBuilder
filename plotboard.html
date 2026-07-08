@@ -637,6 +637,129 @@ header h1{
 }
 #tooltip .tt-title, #mobilePreview .tt-title{ font-weight: 700; }
 
+/* ---- 画像添付（Phase 4） ---- */
+/* ブロック上のサムネイル帯。タイトル行の直下に入るin-flow要素なので
+   タイトルの可読性を損なわない（入らない小ブロックはアイコン表示に退避） */
+.block-thumbwrap{
+  position: relative;
+  margin-top: 2px;
+}
+.block-thumbwrap[hidden]{ display: none; }
+.block-thumb{
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 3px;
+  background: rgba(255,255,255,.45); /* 読み込み中プレースホルダ */
+}
+img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エラーにしない） */
+.thumb-badge{
+  position: absolute;
+  right: 3px; bottom: 3px;
+  background: rgba(30,36,42,.62);
+  color: #fff;
+  font-size: calc(9px * var(--zoom, 1));
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+.thumb-badge[hidden]{ display: none; }
+/* サムネ帯が入らない小ブロックの退避表示（左下の小さな画像アイコン。
+   タイトルは上端から始まるので重ならない） */
+.block-imgicon{
+  position: absolute;
+  left: 3px; bottom: 1px;
+  font-size: calc(9.5px * var(--zoom, 1));
+  line-height: 1.2;
+  opacity: .65;
+  pointer-events: none;
+}
+.block-imgicon[hidden]{ display: none; }
+
+/* エディタの画像ストリップ（添付一覧＋追加ボタン）。エディタ直下に浮かぶ */
+#editorImgs{
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px;
+  background: #fff;
+  border: 1px solid #c9d2d9;
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.22);
+}
+#editorImgs[hidden]{ display: none; }
+.ed-thumb{
+  position: relative;
+  width: 52px; height: 52px;
+  flex: none;
+}
+.ed-thumb img{
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+  background: #eef1f4;
+  cursor: zoom-in;
+}
+.ed-thumb.is-thumb img{ box-shadow: 0 0 0 2px var(--accent); }
+.ed-del, .ed-tofront{
+  position: absolute;
+  width: 19px; height: 19px;
+  border-radius: 50%;
+  border: 1px solid #c9d2d9;
+  background: #fff;
+  color: #55606a;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.ed-del{ top: -7px; right: -7px; color: var(--danger); }
+.ed-tofront{ bottom: -7px; left: -7px; }
+.ed-add{
+  width: 52px; height: 52px;
+  border: 1.5px dashed #b8c2cb;
+  border-radius: 6px;
+  background: #fff;
+  color: #8a939b;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+
+/* ライトボックス（画像の拡大表示。クリック/Escで閉じる） */
+#lightbox{
+  position: fixed; inset: 0;
+  background: rgba(20,24,28,.78);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 140;
+  cursor: zoom-out;
+}
+#lightbox[hidden]{ display: none; }
+#lightbox img{
+  max-width: 94vw; max-height: 94vh;
+  border-radius: 8px;
+  box-shadow: 0 12px 48px rgba(0,0,0,.5);
+}
+
+/* ツールチップ/全文プレビューの画像列（表示専用の原則を維持・ボタン無し） */
+.tt-imgs{
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: 6px;
+}
+.tt-imgs img{
+  width: 56px; height: 56px;
+  object-fit: cover;
+  border-radius: 5px;
+  background: #eee9d2;
+}
+
 /* ---- 全文プレビュー（モバイル・選択中でクリップ時のみ画面下部に表示） ---- */
 #mobilePreview{
   position: fixed;
@@ -755,6 +878,7 @@ header h1{
       <div id="tooltip" hidden></div>
       <textarea id="editorTa" hidden autocomplete="off"
                 placeholder="1行目がタイトル&#10;2行目からメモ…"></textarea>
+      <div id="editorImgs" hidden></div>
     </div>
     <div id="colCtl" class="edge-ctl">
       <button id="colPlus"  title="列を追加" aria-label="列を追加">＋</button>
@@ -790,6 +914,10 @@ header h1{
 <div id="placeHint" hidden>コピーの配置先をタップ / クリック（Escで中止）</div>
 
 <div id="mobilePreview" hidden></div>
+
+<!-- 画像添付（Phase 4）: ファイル選択と拡大表示（ライトボックス） -->
+<input id="imgFileInput" type="file" accept="image/*" multiple hidden>
+<div id="lightbox" hidden><img alt=""></div>
 
 <!-- 設定パネル（端末ローカル設定。作品JSONには含めない） -->
 <div id="settingsModal" class="dialog" hidden>
@@ -903,6 +1031,9 @@ const SAVE_DEBOUNCE_MS = 1200;
 // 編集後のDropboxアップロードまでの間隔（テストから短縮できるようフック付き）
 const CLOUD_DEBOUNCE_MS = window.__PB_CLOUD_DEBOUNCE ?? 20000;
 const NAME_FORBIDDEN = /[\\/:?*"<>|]/; // Dropboxのパス禁止文字
+// 画像（Phase 4）: 追加時に長辺IMG_MAX_EDGE以下へ縮小してから保存する（軽量方針）
+const IMG_MAX_EDGE = 1024;
+const IMG_QUALITY = 0.85;
 
 /* ---------- 端末ローカル設定（localStorage・クラウド同期しない） ----------
  * キー操作の好みは端末・ユーザー環境に紐づくため作品JSONには含めない。
@@ -952,7 +1083,7 @@ function genId(){ return 'blk-' + Math.random().toString(36).slice(2, 10); }
 function newDoc(name){
   // 縦長デフォルト（モバイル配慮の縦長ファースト方針。以降のUIも縦長を優先して設計する）
   return {
-    version: 2,
+    version: 3,
     title: name || '無題',
     updatedAt: null,  // ISO文字列。保存のたびに更新
     device: null,     // 最終更新した端末の識別子
@@ -961,16 +1092,18 @@ function newDoc(name){
 }
 function newBlock(x, y){
   // version 2: title/memo を text に統一（1行目=タイトルとして表示）
+  // version 3: thumb(未使用)を廃止し images(ファイル名の配列。1枚目=サムネ)を追加
   return { id: genId(), x, y, w: 1, h: 1,
-           text: '', color: 'green', marks: [], thumb: null };
+           text: '', color: 'green', marks: [], images: [] };
 }
 // textを「1行目（タイトル）」と「2行目以降」に分割
 function splitText(text){
   const i = text.indexOf('\n');
   return i < 0 ? [text, ''] : [text.slice(0, i), text.slice(i + 1)];
 }
-// 復元データの欠損フィールドを補い、version 1（title/memo分離）は
-// text = title + "\n" + memo に統合して version 2 へ変換する
+// 復元データの欠損フィールドを補い、旧バージョンは段階変換で version 3 へ:
+// v1（title/memo分離）→ text = title + "\n" + memo に統合（v2）
+// v2（thumb未使用）  → thumbを廃止し images 配列へ（v3）
 function normalizeDoc(d){
   if (!d || !Array.isArray(d.boards) || !d.boards[0]) return newDoc();
   d.title = typeof d.title === 'string' ? d.title : '無題';
@@ -989,28 +1122,32 @@ function normalizeDoc(d){
         : [b.title, b.memo].filter(s => typeof s === 'string' && s !== '').join('\n'),
     color: COLOR_IDS.includes(b.color) ? b.color : 'green',
     marks: Array.isArray(b.marks) ? b.marks : [],
-    thumb: b.thumb ?? null
+    // v2→v3移行: images = thumb ? [thumb] : []（thumbは常にnull運用だったため実質[]）
+    images: Array.isArray(b.images)
+      ? b.images.filter(s => typeof s === 'string' && s !== '')
+      : (typeof b.thumb === 'string' && b.thumb !== '' ? [b.thumb] : [])
   }));
-  d.version = 2;
+  d.version = 3;
   return d;
 }
-// version 1データを読み込む時は、変換前の生データを旧docsストアに退避してから
-// 変換する（Phase 3のマイグレーションと同じ「消失事故を絶対に起こさない」方針）
-async function backupV1(name, doc){
+// 旧バージョンのデータを読み込む時は、変換前の生データを旧docsストアに退避して
+// から変換する（Phase 3のマイグレーションと同じ「消失事故を絶対に起こさない」方針）
+async function backupOldVersion(name, doc){
   try{
+    const ver = doc.version === 2 ? 2 : 1;
     const db = await openDB();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
-      tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(doc)), 'v1-backup:' + name);
+      tx.objectStore(DB_STORE).put(JSON.parse(JSON.stringify(doc)), `v${ver}-backup:` + name);
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
     });
   }catch(e){
-    console.warn('v1バックアップに失敗:', e);
+    console.warn('旧バージョンのバックアップに失敗:', e);
   }
 }
 async function migrateDoc(name, doc){
-  if (doc && Array.isArray(doc.boards) && doc.version !== 2) await backupV1(name, doc);
+  if (doc && Array.isArray(doc.boards) && doc.version !== 3) await backupOldVersion(name, doc);
   return normalizeDoc(doc);
 }
 
@@ -1046,6 +1183,7 @@ const toolbarEl = $('toolbar'), swatchesEl = $('swatches'), delBtn = $('delBtn')
 const starBtn = $('starBtn'), flagBtn = $('flagBtn'), crossBtn = $('crossBtn');
 const editBtn = $('editBtn'), copyBtn = $('copyBtn');
 const tooltipEl = $('tooltip'), mobilePreviewEl = $('mobilePreview');
+const editorImgsEl = $('editorImgs'), imgFileInput = $('imgFileInput'), lightboxEl = $('lightbox');
 const settingsBtn = $('settingsBtn'), settingsModal = $('settingsModal');
 const placeHint = $('placeHint');
 const titleView = $('titleView'), boardView = $('boardView');
@@ -1061,17 +1199,20 @@ const blockEls = new Map(); // id -> element
 
 /* ---------- IndexedDB 保存 ----------
  * v2: 複数作品対応。'titles'ストアに作品名をキーとしてレコードを保存。
- * 旧'docs'ストア(単一ボード)はマイグレーション後もそのまま残す（消さない） */
+ * 旧'docs'ストア(単一ボード)はマイグレーション後もそのまま残す（消さない）
+ * v3: 'images'ストア追加。縮小済み画像Blobのキャッシュ（キー: タイトル名/ファイル名） */
 const DB_NAME = 'plotboard', DB_STORE = 'docs', DB_TITLES = 'titles', DB_KEY = 'current';
+const DB_IMAGES = 'images';
 let dbPromise = null;
 function openDB(){
   if (!dbPromise){
     dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 2);
+      const req = indexedDB.open(DB_NAME, 3);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
         if (!db.objectStoreNames.contains(DB_TITLES)) db.createObjectStore(DB_TITLES);
+        if (!db.objectStoreNames.contains(DB_IMAGES)) db.createObjectStore(DB_IMAGES);
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -1114,6 +1255,54 @@ async function idbTitleDelete(name){
 async function idbTitlesAll(){
   const db = await openDB();
   return idbReq(db.transaction(DB_TITLES).objectStore(DB_TITLES).getAll()).then(r => r || []);
+}
+
+/* ---------- 画像キャッシュ（IndexedDB・Blob） ----------
+ * キー: 「タイトル名/ファイル名」。タイトル名に / は使えない（NAME_FORBIDDEN）
+ * ため区切り文字として安全に使える */
+const imgKey = (title, name) => title + '/' + name;
+async function idbImgPut(title, name, blob){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_IMAGES, 'readwrite');
+    tx.objectStore(DB_IMAGES).put(blob, imgKey(title, name));
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbImgGet(title, name){
+  const db = await openDB();
+  return idbReq(db.transaction(DB_IMAGES).objectStore(DB_IMAGES).get(imgKey(title, name)))
+    .then(r => r || null);
+}
+async function idbImgDelete(title, name){
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_IMAGES, 'readwrite');
+    tx.objectStore(DB_IMAGES).delete(imgKey(title, name));
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbImgKeys(title){
+  const db = await openDB();
+  const range = IDBKeyRange.bound(title + '/', title + '/' + '\uffff');
+  return idbReq(db.transaction(DB_IMAGES).objectStore(DB_IMAGES).getAllKeys(range))
+    .then(r => r || []);
+}
+// タイトル名変更に追従してキャッシュのキーを付け替える
+async function idbImgRenameTitle(oldTitle, newTitle){
+  for (const k of await idbImgKeys(oldTitle)){
+    const name = k.slice(oldTitle.length + 1);
+    const blob = await idbImgGet(oldTitle, name);
+    if (blob) await idbImgPut(newTitle, name, blob);
+    await idbImgDelete(oldTitle, name);
+  }
+}
+async function idbImgClearTitle(title){
+  for (const k of await idbImgKeys(title)){
+    await idbImgDelete(title, k.slice(title.length + 1));
+  }
 }
 
 /* ---------- ローカル保存（一次ストレージ）と同期インジケータ ---------- */
@@ -1233,17 +1422,32 @@ function makeBlockEl(id){
   pad.className = 'mark-pad'; // マークバッジぶんタイトル1行目を避けるスペーサー
   const title = document.createElement('div');
   title.className = 'block-title';
+  // サムネイル（images[0]）はタイトルの直下・メモの上に挟む
+  const thumbwrap = document.createElement('div');
+  thumbwrap.className = 'block-thumbwrap';
+  thumbwrap.hidden = true;
+  const thumb = document.createElement('img');
+  thumb.className = 'block-thumb';
+  thumb.alt = '';
+  thumb.draggable = false;
+  const tbadge = document.createElement('span');
+  tbadge.className = 'thumb-badge';
+  tbadge.hidden = true;
+  thumbwrap.append(thumb, tbadge);
   const rest = document.createElement('div');
   rest.className = 'block-rest';
-  body.append(pad, title, rest);
+  body.append(pad, title, thumbwrap, rest);
   const marks = document.createElement('div');
   marks.className = 'block-marks';
+  const imgicon = document.createElement('span');
+  imgicon.className = 'block-imgicon';
+  imgicon.hidden = true;
   const more = document.createElement('div');
   more.className = 'block-more';
   more.textContent = '…';
   const handle = document.createElement('div');
   handle.className = 'handle';
-  el.append(body, marks, more, handle);
+  el.append(body, marks, imgicon, more, handle);
   el.addEventListener('pointerdown', onBlockPointerDown);
   handle.addEventListener('pointerdown', onHandlePointerDown);
   // PC: クリップされたブロックにカーソルを合わせると全文ツールチップ（300ms遅延）
@@ -1306,6 +1510,36 @@ function layoutBlock(b){
   } else {
     padEl.style.width = '0px';
     padEl.style.height = '0px';
+  }
+  // 画像サムネイル（1枚目）。タイトルの可読性を最優先し、タイトル行の下に
+  // 十分な高さが残る時だけ帯状に表示。入らない小ブロックでは左下の小さな
+  // アイコン表示に退避する（1×1でも破綻しない）
+  const wrapEl = el.querySelector('.block-thumbwrap');
+  const iconEl = el.querySelector('.block-imgicon');
+  const imgs = b.images || [];
+  if (imgs.length && state.currentName){
+    const innerH = b.h * cell - 4 - 6;   // ブロック内側の高さ（padding 3px×2）
+    const innerW = b.w * cell - 4 - 10;  // 同・幅（padding 5px×2）
+    const avail = innerH - el.querySelector('.block-title').offsetHeight - 2;
+    const minBand = Math.max(16, Math.round(cell * 0.55));
+    if (avail >= minBand){
+      iconEl.hidden = true;
+      wrapEl.hidden = false;
+      // 帯の高さ: 横幅の9:16相当を基準に、残り高さへクランプ
+      wrapEl.style.height =
+        Math.min(avail, Math.max(minBand, Math.round(innerW * 9 / 16))) + 'px';
+      setImgEl(el.querySelector('.block-thumb'), state.currentName, imgs[0]);
+      const badge = el.querySelector('.thumb-badge');
+      badge.hidden = imgs.length < 2;
+      if (imgs.length > 1) badge.textContent = '+' + (imgs.length - 1);
+    } else {
+      wrapEl.hidden = true;
+      iconEl.hidden = false;
+      iconEl.textContent = '🖼' + (imgs.length > 1 ? imgs.length : '');
+    }
+  } else {
+    wrapEl.hidden = true;
+    iconEl.hidden = true;
   }
   // クリップされている時だけ「まだある」表示
   el.querySelector('.block-more').hidden = !isClipped(b.id);
@@ -1502,8 +1736,9 @@ function placeToolbar(){
 
 function updateToolbar(){
   const sel = selectedBlocks();
-  // 範囲選択のドラッグ中はまだ出さない（確定時に表示）
-  toolbarEl.classList.toggle('hidden', !sel.length || !!state.marquee);
+  // 範囲選択のドラッグ中はまだ出さない（確定時に表示）。
+  // その場エディタ表示中も隠す（エディタ・画像ストリップと重なるため）
+  toolbarEl.classList.toggle('hidden', !sel.length || !!state.marquee || !!state.editing);
   if (!sel.length) return;
   for (const s of swatchesEl.children){
     s.classList.toggle('active', sel.every(b => b.color === s.dataset.color));
@@ -1553,8 +1788,8 @@ crossBtn.addEventListener('click', () => toggleMark('cross'));
  * PC: クリップされたブロックへのホバーで表示専用ツールチップ。操作要素を
  *     一切含まないため、ボタンを押しに行く途中で消える問題が構造的に無い
  * モバイル: 選択中ブロックがクリップされていれば画面下部に全文パネル */
-function fillTextEls(el, text){
-  const [t, rest] = splitText(text);
+function fillTextEls(el, b){
+  const [t, rest] = splitText(b.text);
   el.textContent = '';
   const tEl = document.createElement('div');
   tEl.className = 'tt-title';
@@ -1565,13 +1800,26 @@ function fillTextEls(el, text){
     rEl.textContent = rest;
     el.appendChild(rEl);
   }
+  // 添付画像のサムネイル列（表示専用の原則を維持・ボタンは置かない）
+  if (b.images?.length && state.currentName){
+    const row = document.createElement('div');
+    row.className = 'tt-imgs';
+    for (const name of b.images){
+      const img = document.createElement('img');
+      img.alt = '';
+      img.draggable = false;
+      setImgEl(img, state.currentName, name);
+      row.appendChild(img);
+    }
+    el.appendChild(row);
+  }
 }
 function updateTextPreview(){
   const busy = state.drag || state.resize || state.placing || state.marquee || state.editing;
-  // PCツールチップ（300ms遅延後・クリップされている時のみ）
+  // PCツールチップ（300ms遅延後・クリップされているか画像がある時）
   const hb = (!busy && state.hoverReady && state.hoverId) ? getBlock(state.hoverId) : null;
-  if (hb && isClipped(hb.id)){
-    fillTextEls(tooltipEl, hb.text);
+  if (hb && (isClipped(hb.id) || hb.images?.length)){
+    fillTextEls(tooltipEl, hb);
     tooltipEl.hidden = false;
     // ブロックの上に表示。入らなければ下に
     const g = board().grid;
@@ -1585,8 +1833,8 @@ function updateTextPreview(){
   }
   // モバイル全文パネル（タップで全文が読める）。下部ツールバーの上に出す
   const sb = (!busy && !finePointer()) ? getBlock(singleSelId()) : null;
-  if (sb && isClipped(sb.id)){
-    fillTextEls(mobilePreviewEl, sb.text);
+  if (sb && (isClipped(sb.id) || sb.images?.length)){
+    fillTextEls(mobilePreviewEl, sb);
     mobilePreviewEl.style.bottom = (toolbarEl.offsetHeight + 28) + 'px';
     mobilePreviewEl.hidden = false;
   } else {
@@ -1616,6 +1864,8 @@ function openEditor(id){
   editorTa.focus();
   editorTa.setSelectionRange(editorTa.value.length, editorTa.value.length);
   editorTa.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  refreshEditorImgs(); // 添付画像ストリップ（Phase 4）
+  updateToolbar();
   updateTextPreview();
 }
 // 最小サイズ=ブロックの現寸を保証しつつ、内容に応じて下に拡張
@@ -1626,37 +1876,333 @@ function autosizeEditor(){
   const minH = b ? b.h * cell - 4 : 40;
   editorTa.style.height = 'auto';
   editorTa.style.height = Math.max(minH, editorTa.scrollHeight + 2) + 'px';
+  positionEditorImgs(); // 画像ストリップはエディタ直下に追従
 }
 function commitEditor(){
   if (!state.editing) return;
   const b = getBlock(state.editing.id);
   state.editing = null;
   editorTa.hidden = true;
+  editorImgsEl.hidden = true;
+  editorImgsEl.textContent = '';
   if (b && b.text !== editorTa.value){
     b.text = editorTa.value;
     layoutBlock(b);
     scheduleSave();
   }
+  updateToolbar();
   updateTextPreview();
 }
 editorTa.addEventListener('input', autosizeEditor);
 editorTa.addEventListener('pointerdown', e => e.stopPropagation());
-editorTa.addEventListener('blur', commitEditor);
+// ファイル選択ダイアログ表示中のblurでは確定しない（画像追加後に編集を続けられる）
+editorTa.addEventListener('blur', () => { if (!imgPicking) commitEditor(); });
 editorTa.addEventListener('keydown', e => {
   e.stopPropagation();
   if (e.key === 'Escape'){
-    commitEditor(); // Escも確定扱い
+    if (!lightboxEl.hidden) closeLightbox();
+    else commitEditor(); // Escも確定扱い
   } else if (e.key === 'Enter' && e.shiftKey &&
              getSetting('editorConfirmKey') === 'shift-enter'){
     e.preventDefault();
     commitEditor();
   }
 });
-// エディタの外側をポインタダウンしたら確定
+// エディタの外側をポインタダウンしたら確定（画像ストリップ・ライトボックスは内側扱い）
 document.addEventListener('pointerdown', e => {
-  if (state.editing && e.target !== editorTa) commitEditor();
+  if (state.editing && e.target !== editorTa &&
+      !editorImgsEl.contains(e.target) && !lightboxEl.contains(e.target)) commitEditor();
 });
 editBtn.addEventListener('click', () => openEditor(singleSelId()));
+
+/* ============================================================
+ * Phase 4: 画像添付
+ * - 追加時にCanvasで長辺1024px以下へ縮小し、WebPエンコード
+ *   （非対応ブラウザはJPEGにフォールバック）。元画像はどこにも保持しない
+ * - IndexedDBのimagesストアにBlobでキャッシュし、objectURLで表示
+ *   （ドラッグ中に再デコードが走らないよう、objectURLは使い回す）
+ * - Dropboxへは /PlotBoard/{タイトル名}/img/{ファイル名} に保存。
+ *   バイナリの送受信はストレージブリッジ標準の save(Blobを受け付ける)/
+ *   loadBinary をそのまま使う（ブリッジのAPIで足りるため独自ラッパーは
+ *   書かない。直叩きが必要なのはGCの一覧取得のみ→gcImagesのコメント参照）
+ * ============================================================ */
+function genImgId(){ return 'img-' + Math.random().toString(36).slice(2, 10); }
+const IMG_EXT_MIME = { webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
+function imgMime(name){
+  return IMG_EXT_MIME[name.split('.').pop().toLowerCase()] || 'application/octet-stream';
+}
+
+/* ---- クライアント側パイプライン（アップロード前に必ず実施） ---- */
+function canvasToBlob(cv, type){
+  return new Promise(resolve => cv.toBlob(resolve, type, IMG_QUALITY));
+}
+async function loadBitmap(file){
+  if (window.createImageBitmap){
+    try{ return await createImageBitmap(file); }catch(_){ /* 下のImgフォールバックへ */ }
+  }
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => { URL.revokeObjectURL(url); resolve(im); };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像を読み込めません')); };
+    im.src = url;
+  });
+}
+// 長辺IMG_MAX_EDGE以下へ縮小（元がそれ以下なら等倍）→ WebP。
+// WebPエンコード非対応ブラウザ（toBlobがPNG等を返す）はJPEGへフォールバック
+async function encodeImage(file){
+  const bmp = await loadBitmap(file);
+  const w0 = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight;
+  const scale = Math.min(1, IMG_MAX_EDGE / Math.max(w0, h0));
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(w0 * scale));
+  cv.height = Math.max(1, Math.round(h0 * scale));
+  cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+  bmp.close?.();
+  let blob = await canvasToBlob(cv, 'image/webp');
+  let ext = 'webp';
+  if (!blob || blob.type !== 'image/webp'){
+    blob = await canvasToBlob(cv, 'image/jpeg');
+    ext = 'jpg';
+  }
+  if (!blob || !blob.type.startsWith('image/')) throw new Error('画像の変換に失敗しました');
+  return { blob, ext };
+}
+
+/* ---- 表示用objectURLキャッシュ ---- */
+const imgURLs = new Map();    // imgKey -> objectURL
+const imgLoading = new Map(); // imgKey -> Promise<string|null>
+const imgFailed = new Set();  // ダウンロード失敗（オフライン・未アップロード等）。復帰時にクリア
+
+// キャッシュ優先で画像のobjectURLを得る。なければDropboxから
+// ダウンロード→キャッシュ→表示。取れなければnull（エラーにしない）
+async function ensureImageURL(title, name){
+  const key = imgKey(title, name);
+  if (imgURLs.has(key)) return imgURLs.get(key);
+  if (imgLoading.has(key)) return imgLoading.get(key);
+  const p = (async () => {
+    let blob = null;
+    try{ blob = await idbImgGet(title, name); }catch(_){}
+    if (!blob && canCloud() && navigator.onLine && !imgFailed.has(key)){
+      try{
+        const buf = await storage.loadBinary(title + '/img/' + name);
+        blob = new Blob([buf], { type: imgMime(name) });
+        await idbImgPut(title, name, blob).catch(() => {});
+      }catch(e){
+        imgFailed.add(key); // 取れるようになるまでプレースホルダ表示
+      }
+    }
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    imgURLs.set(key, url);
+    return url;
+  })();
+  imgLoading.set(key, p);
+  try{ return await p; }finally{ imgLoading.delete(key); }
+}
+// img要素へ非同期に画像を流し込む。解決までは背景色プレースホルダ、
+// 取れなければ .img-missing（オフラインプレースホルダ）
+function setImgEl(imgEl, title, name){
+  const key = imgKey(title, name);
+  if (imgEl.dataset.key === key && imgEl.getAttribute('src')) return; // 再デコード防止
+  imgEl.dataset.key = key;
+  const url = imgURLs.get(key);
+  if (url){
+    imgEl.src = url;
+    imgEl.classList.remove('img-missing');
+    return;
+  }
+  imgEl.removeAttribute('src');
+  imgEl.classList.remove('img-missing');
+  ensureImageURL(title, name).then(u => {
+    if (imgEl.dataset.key !== key) return; // 別の画像に差し替え済み
+    if (u){ imgEl.src = u; imgEl.classList.remove('img-missing'); }
+    else imgEl.classList.add('img-missing');
+  });
+}
+// JSONが参照している全画像ファイル名の集合（アップロード整理・GCで使う）
+function docImageSet(doc){
+  const s = new Set();
+  for (const bd of doc.boards || [])
+    for (const b of bd.blocks || [])
+      for (const n of b.images || []) s.add(n);
+  return s;
+}
+
+/* ---- 画像の追加・削除 ---- */
+// 追加はまずIndexedDBに保存して即表示。Dropboxへのアップロードは
+// rec.pendingImgsに積み、既存のJSON同期と同じ遅延・リトライ系統に乗せる
+// （オフラインで追加→オンライン復帰時にsyncDirtyAll経由でアップロードされる）
+async function addImagesToBlock(id, files){
+  const b = getBlock(id);
+  if (!b || !state.currentName) return;
+  const title = state.currentName;
+  let added = 0;
+  for (const f of files){
+    if (!f || !String(f.type).startsWith('image/')) continue;
+    try{
+      const { blob, ext } = await encodeImage(f);
+      const name = genImgId() + '.' + ext;
+      await idbImgPut(title, name, blob);
+      imgURLs.set(imgKey(title, name), URL.createObjectURL(blob));
+      b.images.push(name);
+      if (state.rec) (state.rec.pendingImgs ??= []).push(name);
+      added++;
+    }catch(e){
+      console.warn('[img] 追加に失敗:', e);
+    }
+  }
+  if (!added) return;
+  layoutBlock(b);
+  refreshEditorImgs();
+  updateTextPreview();
+  scheduleSave();
+}
+// 添付から外すだけ。実ファイル（Dropbox・キャッシュ）は同期成功後のGCが消す
+function removeImageFromBlock(id, name){
+  const b = getBlock(id);
+  if (!b) return;
+  const i = b.images.indexOf(name);
+  if (i < 0) return;
+  b.images.splice(i, 1);
+  layoutBlock(b);
+  refreshEditorImgs();
+  updateTextPreview();
+  scheduleSave();
+}
+
+/* ---- エディタの画像ストリップ（一覧＋追加・削除・サムネに設定） ---- */
+let imgPicking = false; // ファイル選択ダイアログ表示中（blurによる確定を抑止）
+function positionEditorImgs(){
+  if (editorImgsEl.hidden) return;
+  editorImgsEl.style.left = editorTa.style.left;
+  editorImgsEl.style.top = (parseFloat(editorTa.style.top) + editorTa.offsetHeight + 6) + 'px';
+  editorImgsEl.style.width = editorTa.style.width;
+}
+function refreshEditorImgs(){
+  const b = state.editing ? getBlock(state.editing.id) : null;
+  if (!b){
+    editorImgsEl.hidden = true;
+    editorImgsEl.textContent = '';
+    return;
+  }
+  editorImgsEl.textContent = '';
+  b.images.forEach((name, i) => {
+    const box = document.createElement('div');
+    box.className = 'ed-thumb' + (i === 0 ? ' is-thumb' : '');
+    const img = document.createElement('img');
+    img.alt = '';
+    img.draggable = false;
+    img.title = i === 0 ? 'ブロックに表示されるサムネイル' : '';
+    setImgEl(img, state.currentName, name);
+    img.addEventListener('click', () => openLightbox(name));
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ed-del';
+    del.textContent = '×';
+    del.title = 'この画像を外す';
+    del.addEventListener('click', () => removeImageFromBlock(b.id, name));
+    box.append(img, del);
+    if (i > 0){
+      const tf = document.createElement('button');
+      tf.type = 'button';
+      tf.className = 'ed-tofront';
+      tf.textContent = '↖';
+      tf.title = 'サムネに設定（先頭に移動）';
+      tf.addEventListener('click', () => {
+        const idx = b.images.indexOf(name);
+        if (idx > 0){
+          b.images.splice(idx, 1);
+          b.images.unshift(name);
+          layoutBlock(b);
+          refreshEditorImgs();
+          scheduleSave();
+        }
+      });
+      box.appendChild(tf);
+    }
+    editorImgsEl.appendChild(box);
+  });
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'ed-add';
+  add.textContent = '＋';
+  add.title = '画像を追加（モバイルはカメラロール）';
+  add.addEventListener('click', () => {
+    imgPicking = true;
+    imgFileInput.dataset.blockId = b.id;
+    imgFileInput.click();
+  });
+  editorImgsEl.appendChild(add);
+  editorImgsEl.hidden = false;
+  positionEditorImgs();
+}
+// ストリップ内の操作でtextareaのフォーカスを奪わない（blur確定を防ぐ）。
+// pointerdownのpreventDefaultはフォーカス移動だけを止め、clickは発火する
+editorImgsEl.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  e.stopPropagation();
+});
+
+imgFileInput.addEventListener('change', () => {
+  const id = imgFileInput.dataset.blockId;
+  const files = [...imgFileInput.files];
+  imgFileInput.value = '';
+  imgPicking = false;
+  if (state.editing) editorTa.focus();
+  if (id && files.length) addImagesToBlock(id, files);
+});
+imgFileInput.addEventListener('cancel', () => {
+  imgPicking = false;
+  if (state.editing) editorTa.focus();
+});
+// cancelイベント未対応ブラウザの保険: ウィンドウにフォーカスが戻ったら解除
+window.addEventListener('focus', () => {
+  if (!imgPicking) return;
+  setTimeout(() => {
+    if (imgPicking){
+      imgPicking = false;
+      if (state.editing) editorTa.focus();
+    }
+  }, 400); // changeイベントが先に処理される猶予
+});
+
+// クリップボード貼り付け（Ctrl+V / 長押しペースト）。スクリーンショット運用向け
+editorTa.addEventListener('paste', e => {
+  if (!state.editing) return;
+  const files = [];
+  for (const it of e.clipboardData?.items || []){
+    if (it.kind === 'file' && it.type.startsWith('image/')) files.push(it.getAsFile());
+  }
+  if (files.length){
+    e.preventDefault(); // 画像貼り付け時はテキストとして挿入させない
+    addImagesToBlock(state.editing.id, files);
+  }
+});
+
+// ファイルのドラッグ&ドロップ（ブロックまたはエディタへ・PC向け）
+gridEl.addEventListener('dragover', e => {
+  if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
+});
+gridEl.addEventListener('drop', e => {
+  const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  e.preventDefault();
+  let id = state.editing?.id || null;      // エディタ（textarea/ストリップ）へのドロップ
+  const blkEl = e.target.closest?.('.block');
+  if (blkEl) id = blkEl.dataset.id;        // ブロックへの直接ドロップ
+  if (id) addImagesToBlock(id, files);
+});
+
+/* ---- ライトボックス（拡大表示。クリック / Escで閉じる） ---- */
+function openLightbox(name){
+  if (!state.currentName) return;
+  setImgEl(lightboxEl.querySelector('img'), state.currentName, name);
+  lightboxEl.hidden = false;
+}
+function closeLightbox(){ lightboxEl.hidden = true; }
+lightboxEl.addEventListener('pointerdown', e => e.stopPropagation());
+lightboxEl.addEventListener('click', closeLightbox);
 
 /* ---------- コピー（複製直後は配置先選択モード） ----------
  * 複数選択時は相対位置を保ったままグループごと複製・配置する */
@@ -2192,7 +2738,8 @@ function createBlockAt(clientX, clientY){
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (!settingsModal.hidden) settingsModal.hidden = true;
+  if (!lightboxEl.hidden) closeLightbox();
+  else if (!settingsModal.hidden) settingsModal.hidden = true;
   else if (state.editing) commitEditor(); // Escも確定扱い
   else if (state.placing) cancelPlacing();
   else deselect();
@@ -2325,8 +2872,10 @@ function canCloud(){ return !!(storage && storage.isConnected); }
 async function onCloudConnected(){
   if (cloudReady) return;
   cloudReady = true;
+  imgFailed.clear(); // 未取得だった画像をダウンロードできるように
   updateSyncUI();
   if (!titleView.hidden) await refreshTitleList();
+  if (!boardView.hidden) renderAll();
   syncDirtyAll();
 }
 
@@ -2349,6 +2898,30 @@ function scheduleCloudUpload(){
   cloudTimer = setTimeout(() => syncNow(), CLOUD_DEBOUNCE_MS);
 }
 
+// 未アップロード画像（pendingImgs）をDropboxへ。JSONアップロードの直前に呼び、
+// 参照先ファイルがJSONより先に存在するようにする。失敗分はpendingImgsに残り、
+// 次のsyncNow（JSON同期と同じトリガ・リトライ系統）で再試行される
+async function uploadPendingImages(name, rec){
+  const pend = rec.pendingImgs || [];
+  if (!pend.length) return;
+  const referenced = docImageSet(rec.doc);
+  const rest = [];
+  for (const fn of pend){
+    if (!referenced.has(fn)) continue; // 追加後すぐ外された画像。アップロード不要
+    let blob = null;
+    try{ blob = await idbImgGet(name, fn); }catch(_){}
+    if (!blob) continue; // キャッシュ喪失。アップロードのしようがない
+    try{
+      await storage.save(name + '/img/' + fn, blob);
+      imgFailed.delete(imgKey(name, fn));
+    }catch(e){
+      console.warn('[img] アップロード失敗:', fn, e);
+      rest.push(fn);
+    }
+  }
+  rec.pendingImgs = rest;
+}
+
 // アップロード（rev比較つき）。rev不一致＝他端末の更新 → 競合ダイアログ
 async function syncNow(name){
   name = name || state.currentName;
@@ -2365,11 +2938,15 @@ async function syncNow(name){
       openConflict(name, rec, meta);
       return;
     }
+    await uploadPendingImages(name, rec);
     const res = await storage.save(name + '.json', JSON.stringify(rec.doc));
     rec.rev = res.rev;
-    rec.dirty = false;
+    // 画像のアップロードが残っていればdirtyのままにして次の同期トリガで再試行
+    rec.dirty = (rec.pendingImgs || []).length > 0;
     rec.syncedAt = new Date().toISOString();
     await idbTitlePut(rec);
+    // 不要画像の掃除はJSONアップロード成功直後（ローカルが正になった時点）のみ
+    await gcImages(name, rec.doc);
   }catch(e){
     console.warn('[sync] アップロード失敗:', e);
   }finally{
@@ -2379,11 +2956,56 @@ async function syncNow(name){
   }
 }
 
+/* ---------- 不要画像の掃除（ガベージコレクト） ----------
+ * いまアップロードしたJSONのどのブロックのimagesにも含まれないファイルを、
+ * Dropboxの /{タイトル名}/img/ とIndexedDBキャッシュから静かに削除する。
+ * オフライン時・アップロード失敗時・競合時は呼ばれない（syncNow成功後のみ） */
+async function gcImages(name, doc){
+  const referenced = docImageSet(doc);
+  // Dropbox側。フォルダ一覧はブリッジのlist()だと未存在時にフォルダを作って
+  // しまう（クラッタ）ため、dbxMetaと同じ方針で_apiFetchを直接使う
+  try{
+    let entries = [], cursor = null, hasMore = true;
+    while (hasMore){
+      const d = cursor
+        ? await storage._apiFetch('files/list_folder/continue', { cursor })
+        : await storage._apiFetch('files/list_folder', {
+            path: storage._resolve(name + '/img'), recursive: false });
+      entries = entries.concat(d.entries);
+      cursor = d.cursor;
+      hasMore = d.has_more;
+    }
+    for (const ent of entries){
+      if (ent['.tag'] !== 'file' || referenced.has(ent.name)) continue;
+      try{ await storage.delete(name + '/img/' + ent.name); }
+      catch(e){ console.warn('[img] GC削除に失敗:', ent.name, e); }
+    }
+  }catch(e){
+    // フォルダ未作成（画像を一度も同期していない）は正常系
+    if (!String(e.message).includes('not_found')) console.warn('[img] GC一覧に失敗:', e);
+  }
+  // ローカルキャッシュ側
+  try{
+    for (const k of await idbImgKeys(name)){
+      const fn = k.slice(name.length + 1);
+      if (referenced.has(fn)) continue;
+      await idbImgDelete(name, fn);
+      const url = imgURLs.get(k);
+      if (url){ URL.revokeObjectURL(url); imgURLs.delete(k); }
+      imgFailed.delete(k);
+    }
+  }catch(e){
+    console.warn('[img] GCキャッシュ削除に失敗:', e);
+  }
+}
+
 // 未同期(dirty)の全作品をアップロード（接続時・オンライン復帰時）
 async function syncDirtyAll(){
   if (syncDirtyAll._busy) return;
   syncDirtyAll._busy = true;
   try{
+    // 開いている作品の未保存分を先にIndexedDBへ（dirty判定はIDBのレコードで行うため）
+    if (saveTimer) await flushSave();
     const all = await idbTitlesAll();
     for (const rec of all){
       if (!canCloud() || conflictPending) break;
@@ -2393,7 +3015,12 @@ async function syncDirtyAll(){
     syncDirtyAll._busy = false;
   }
 }
-window.addEventListener('online', () => { updateSyncUI(); if (canCloud()) syncDirtyAll(); });
+window.addEventListener('online', () => {
+  imgFailed.clear(); // オフラインプレースホルダの画像を取り直せるように
+  updateSyncUI();
+  if (canCloud()) syncDirtyAll();
+  if (!boardView.hidden) renderAll();
+});
 window.addEventListener('offline', updateSyncUI);
 
 syncBtn.addEventListener('click', async () => {
@@ -2419,12 +3046,14 @@ async function resolveConflict(choice){
   cloudBusy = true; updateSyncUI();
   try{
     if (choice === 'mine'){
-      // この端末の内容で上書き
+      // この端末の内容で上書き（syncNow成功時と同じ扱い: 画像→JSON→GC）
+      await uploadPendingImages(name, rec);
       const res = await storage.save(name + '.json', JSON.stringify(rec.doc));
       rec.rev = res.rev;
-      rec.dirty = false;
+      rec.dirty = (rec.pendingImgs || []).length > 0;
       rec.syncedAt = new Date().toISOString();
       await idbTitlePut(rec);
+      await gcImages(name, rec.doc);
     }else{
       // クラウドの内容を読み込む（この端末の変更は破棄）
       const text = await storage.load(name + '.json');
@@ -2436,6 +3065,7 @@ async function resolveConflict(choice){
       rec.updatedAt = rec.doc.updatedAt || new Date().toISOString();
       rec.syncedAt = new Date().toISOString();
       await idbTitlePut(rec);
+      imgFailed.clear(); // 他端末が上げた画像を取り直せるように
       if (state.currentName === name){
         state.rec = rec;
         state.doc = rec.doc;
@@ -2628,6 +3258,29 @@ async function renameTitle(oldName){
       if (rec.rev && canCloud()){
         const mv = await storage.move(oldName + '.json', newName + '.json');
         rec.rev = mv?.metadata?.rev || rec.rev; // moveでrevが変わる
+        // 画像フォルダ（/{旧名}/）も作品名に追従して移動。無ければ何もしない
+        try{
+          await storage.move(oldName, newName);
+        }catch(e){
+          if (!String(e.message).includes('not_found')){
+            // 移動に失敗しても表示は壊さない: キャッシュから再アップロード
+            // させて新パスに実体を作る（旧パスの残骸は放置される）
+            console.warn('[img] 画像フォルダの移動に失敗:', e);
+            rec.pendingImgs = [...new Set([...(rec.pendingImgs || []), ...docImageSet(rec.doc)])];
+            rec.dirty = true;
+          }
+        }
+      }
+      // IndexedDBキャッシュとobjectURLのキー（タイトル名/ファイル名）も付け替え
+      await idbImgRenameTitle(oldName, newName);
+      for (const [k, v] of [...imgURLs]){
+        if (k.startsWith(oldName + '/')){
+          imgURLs.delete(k);
+          imgURLs.set(newName + k.slice(oldName.length), v);
+        }
+      }
+      for (const k of [...imgFailed]){
+        if (k.startsWith(oldName + '/')) imgFailed.delete(k);
       }
       rec.name = newName;
       rec.doc.title = newName;
@@ -2662,8 +3315,19 @@ async function deleteTitle(it){
     if (hasRemote && canCloud()){
       try{ await storage.delete(name + '.json'); }
       catch(e){ if (!String(e.message).includes('not_found')) throw e; }
+      // 画像フォルダ（/{タイトル名}/）も削除
+      try{ await storage.delete(name); }
+      catch(e){ if (!String(e.message).includes('not_found')) throw e; }
     }
     await idbTitleDelete(name);
+    // 画像キャッシュとobjectURLも掃除
+    await idbImgClearTitle(name).catch(() => {});
+    for (const [k, v] of [...imgURLs]){
+      if (k.startsWith(name + '/')){ URL.revokeObjectURL(v); imgURLs.delete(k); }
+    }
+    for (const k of [...imgFailed]){
+      if (k.startsWith(name + '/')) imgFailed.delete(k);
+    }
     refreshTitleList();
   }catch(e){
     alert('削除に失敗しました: ' + e.message);
@@ -2727,6 +3391,7 @@ async function checkRemoteUpdate(name){
     rec.updatedAt = rec.doc.updatedAt || new Date().toISOString();
     rec.syncedAt = new Date().toISOString();
     await idbTitlePut(rec);
+    imgFailed.clear(); // 他端末が上げた画像を取り直せるように
     state.doc = rec.doc;
     deselect();
     renderAll();
