@@ -3562,6 +3562,12 @@ function makeTitleRow(it){
   main.append(nm, sub);
   main.addEventListener('click', () => openTitle(it.name));
   li.appendChild(main);
+  const dup = document.createElement('button');
+  dup.className = 'tl-act';
+  dup.title = '複製';
+  dup.textContent = '⧉';
+  dup.addEventListener('click', () => duplicateTitle(it));
+  li.appendChild(dup);
   if (it.rec){ // 名前変更はローカルにある作品のみ（クラウドのみは一度開いてから）
     const rn = document.createElement('button');
     rn.className = 'tl-act';
@@ -3700,6 +3706,70 @@ async function renameTitle(oldName){
       alert('名前変更に失敗しました: ' + e.message);
     }
   }, oldName);
+}
+
+/* ---- 複製 ----
+ * 元の作品（ローカル／クラウドどちらでも）を丸ごとコピーして新しい作品を作る。
+ * 画像はキャッシュ→（無ければ）クラウドから集めて新タイトルのキャッシュへ複製し、
+ * pendingImgs に積んで次回同期でDropbox側の /{新名}/img/ にもアップロードさせる。
+ * 複製直後はローカル未同期（dirty）扱い。 */
+async function duplicateTitle(it){
+  // 複製元のドキュメントを用意（ローカルになければクラウドからダウンロード）
+  let srcDoc = it.rec?.doc;
+  if (!srcDoc){
+    if (!canCloud()){
+      alert('クラウドのみの作品の複製にはDropbox接続が必要です（オフライン中は不可）');
+      return;
+    }
+    try{
+      const text = await storage.load(it.name + '.json');
+      srcDoc = await migrateDoc(it.name, JSON.parse(text));
+    }catch(e){
+      alert('複製元のダウンロードに失敗しました: ' + e.message);
+      return;
+    }
+  }
+  // 既定の複製名（「〜 のコピー」。重複していれば連番を付す）
+  const locals = await idbTitlesAll();
+  const taken = new Set([
+    ...locals.map(r => r.name.toLowerCase()),
+    ...remoteEntries.map(e => e.name.replace(/\.json$/i, '').toLowerCase()),
+  ]);
+  const baseName = (it.name + ' のコピー').slice(0, 80);
+  let suggested = baseName, i = 2;
+  while (taken.has(suggested.toLowerCase())){
+    suggested = (it.name + ' のコピー' + i++).slice(0, 80);
+  }
+  openNameModal('複製', suggested, async (newName) => {
+    try{
+      const now = new Date().toISOString();
+      const doc = JSON.parse(JSON.stringify(srcDoc));
+      doc.title = newName;
+      doc.updatedAt = now;
+      doc.device = deviceId;
+      // 参照画像を新タイトルのキャッシュへコピー（無ければクラウドから取得）
+      const imgs = [...docImageSet(doc)];
+      for (const fn of imgs){
+        let blob = null;
+        try{ blob = await idbImgGet(it.name, fn); }catch(_){}
+        if (!blob && canCloud() && navigator.onLine){
+          try{
+            const buf = await storage.loadBinary(it.name + '/img/' + fn);
+            blob = new Blob([buf], { type: imgMime(fn) });
+          }catch(_){}
+        }
+        if (blob) await idbImgPut(newName, fn, blob).catch(() => {});
+      }
+      const rec = {
+        name: newName, doc, rev: null, dirty: true,
+        updatedAt: now, syncedAt: null, pendingImgs: imgs,
+      };
+      await idbTitlePut(rec);
+      refreshTitleList();
+    }catch(e){
+      alert('複製に失敗しました: ' + e.message);
+    }
+  });
 }
 
 /* ---- 削除（ローカルとクラウド両方から） ---- */
