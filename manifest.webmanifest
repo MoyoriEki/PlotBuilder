@@ -1,0 +1,17 @@
+{
+  "name": "プロットボード",
+  "short_name": "プロットボード",
+  "description": "漫画・物語のプロットをグリッドスナップ式ブロックとして配置・組み換えするWebアプリ",
+  "lang": "ja",
+  "start_url": "plotboard.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fafaf7",
+  "theme_color": "#fafaf7",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
