@@ -5,7 +5,15 @@
 <!-- interactive-widget=resizes-content: ソフトキーボード表示時にレイアウトを
      縮めて、メモ編集モーダル等がキーボードに隠れないようにする(Android Chrome) -->
 <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
-<link rel="icon" href="data:,">
+<!-- アプリアイコン(頭文字P・方眼ボードのロゴ)。タブ用faviconは
+     単一HTMLでも欠けないようSVGをインラインで埋め込む。ホーム画面追加
+     (iOS/Android)向けにPNGとWebApp Manifestも参照する -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512' role='img' aria-label='%E3%83%97%E3%83%AD%E3%83%83%E3%83%88%E3%83%9C%E3%83%BC%E3%83%89 %E3%82%A2%E3%83%97%E3%83%AA%E3%82%A2%E3%82%A4%E3%82%B3%E3%83%B3'%3E%3Cdefs%3E%3ClinearGradient id='paper' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23ffffff'/%3E%3Cstop offset='1' stop-color='%23eef1f4'/%3E%3C/linearGradient%3E%3ClinearGradient id='block' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%235b9ee6'/%3E%3Cstop offset='1' stop-color='%233a7bc4'/%3E%3C/linearGradient%3E%3Cfilter id='shadow' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeDropShadow dx='0' dy='10' stdDeviation='14' flood-color='%232b4c73' flood-opacity='0.28'/%3E%3C/filter%3E%3CclipPath id='round'%3E%3Crect x='16' y='16' width='480' height='480' rx='112'/%3E%3C/clipPath%3E%3C/defs%3E%3Crect x='16' y='16' width='480' height='480' rx='112' fill='url(%23paper)'/%3E%3Cg clip-path='url(%23round)' stroke='%23d5dce3' stroke-width='2'%3E%3Cpath d='M80 16V496 M144 16V496 M208 16V496 M272 16V496 M336 16V496 M400 16V496 M464 16V496'/%3E%3Cpath d='M16 80H496 M16 144H496 M16 208H496 M16 272H496 M16 336H496 M16 400H496 M16 464H496'/%3E%3C/g%3E%3Cg filter='url(%23shadow)'%3E%3Crect x='128' y='112' width='256' height='288' rx='34' fill='url(%23block)'/%3E%3Crect x='128' y='112' width='256' height='288' rx='34' fill='none' stroke='%23ffffff' stroke-opacity='0.35' stroke-width='3'/%3E%3C/g%3E%3Cg transform='translate(256 256) scale(2.72) translate(-48 -50)' fill='%23ffffff'%3E%3Cpath fill-rule='evenodd' d=' M22 12 L58 12 A20 20 0 1 1 58 52 L42 52 L42 88 L22 88 Z M42 27 L53 27 A11 11 0 1 1 53 49 L42 49 Z'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="プロットボード">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#fafaf7">
+<link rel="manifest" href="manifest.webmanifest">
 <title>プロットボード</title>
 <!-- ストレージブリッジ（Dropbox連携の共通ライブラリ・無改造で利用）
      読み込みに失敗した場合はローカルのみモードで動作する -->
