@@ -1145,6 +1145,9 @@ const DEFAULT_PALETTE = {
 const CELL_MIN = 11, CELL_MAX = 24;
 // 新規ブロック・基準の既定サイズ（細分化後の2×2マス＝旧1マス相当）
 const BASE_UNIT = 2;
+// 行・列の＋−ボタンの増減ステップ(マス)。行は見えている目盛りどおり1マス刻み、
+// 列は基準(2マス)刻みのまま（横は1マス刻みだと幅が変わりすぎて扱いにくいため）
+const ROW_STEP = 1, COL_STEP = BASE_UNIT;
 // 表示倍率(ズーム)のステップ。100%=画面幅フィット。PCで小さすぎるとき拡大するための機能
 const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 // ブロック文字サイズ設定はスライダーで数値指定（基準フォントへの倍率）。
@@ -2708,35 +2711,35 @@ delBtn.addEventListener('click', () => {
 });
 
 /* ---------- 行・列の追加/削除 ---------- */
-// 目盛りは細分化したが、盤面の増減は基準(2マス)単位で行い従来の操作感を保つ
+// 増減の単位はROW_STEP/COL_STEP。行は目盛り1本ぶん(1マス)、列は基準(2マス)。
+// 下限は基準1マス分(BASE_UNIT)＝ブロックを1つ置けるサイズまで。
 function updateEdgeControls(){
   const g = board().grid;
-  const step = BASE_UNIT;
-  // 右端/下端の基準1マス分(step)にブロックが載っていなければ削除できる
-  const colFree = !blocks().some(b => b.x + b.w > g.cols - step);
-  const rowFree = !blocks().some(b => b.y + b.h > g.rows - step);
+  // 削除で消える右端/下端の帯にブロックが載っていなければ削除できる
+  const colFree = !blocks().some(b => b.x + b.w > g.cols - COL_STEP);
+  const rowFree = !blocks().some(b => b.y + b.h > g.rows - ROW_STEP);
   colPlus.disabled = g.cols >= MAX_COLS;
   rowPlus.disabled = g.rows >= MAX_ROWS;
-  colMinus.disabled = g.cols <= step || !colFree;
-  rowMinus.disabled = g.rows <= step || !rowFree;
+  colMinus.disabled = g.cols - COL_STEP < BASE_UNIT || !colFree;
+  rowMinus.disabled = g.rows - ROW_STEP < BASE_UNIT || !rowFree;
   colMinus.title = colMinus.disabled && !colFree
     ? 'ブロックが載っている列は削除できません' : '右端の列を削除';
   rowMinus.title = rowMinus.disabled && !rowFree
     ? 'ブロックが載っている行は削除できません' : '下端の行を削除';
 }
 colPlus.addEventListener('click', () => {
-  board().grid.cols = Math.min(MAX_COLS, board().grid.cols + BASE_UNIT); renderAll(); scheduleSave();
+  board().grid.cols = Math.min(MAX_COLS, board().grid.cols + COL_STEP); renderAll(); scheduleSave();
 });
 rowPlus.addEventListener('click', () => {
-  board().grid.rows = Math.min(MAX_ROWS, board().grid.rows + BASE_UNIT); renderAll(); scheduleSave();
+  board().grid.rows = Math.min(MAX_ROWS, board().grid.rows + ROW_STEP); renderAll(); scheduleSave();
 });
 colMinus.addEventListener('click', () => {
   if (colMinus.disabled) return;
-  board().grid.cols = Math.max(BASE_UNIT, board().grid.cols - BASE_UNIT); renderAll(); scheduleSave();
+  board().grid.cols = Math.max(BASE_UNIT, board().grid.cols - COL_STEP); renderAll(); scheduleSave();
 });
 rowMinus.addEventListener('click', () => {
   if (rowMinus.disabled) return;
-  board().grid.rows = Math.max(BASE_UNIT, board().grid.rows - BASE_UNIT); renderAll(); scheduleSave();
+  board().grid.rows = Math.max(BASE_UNIT, board().grid.rows - ROW_STEP); renderAll(); scheduleSave();
 });
 
 /* ---------- ゴースト（配置可否のリアルタイム表示） ----------
