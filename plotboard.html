@@ -21,8 +21,8 @@
 <script src="https://moyorieki.github.io/storage-bridge/storage-bridge.js"></script>
 <style>
 /* ============================================================
-   プロットボード Phase 1
-   方眼紙イメージの薄いグリッド + パステル系ブロック
+   プロットボード Phase 5
+   自由座標キャンバス + テキストブロック / 画像オブジェクト / 手書きインク
    ============================================================ */
 :root{
   --paper: #fafaf7;
@@ -30,14 +30,6 @@
   --ink: #333a40;
   --accent: #4a90d9;
   --danger: #c53030;
-  /* 画像サムネの高さ(px)。設定パネルのスライダーがJSで上書きする。
-     漫画ページ前提で「高さ」を基準にし、幅は--thumb-arから算出する（縦長を切らない）。
-     --ed-thumb: エディタの画像ストリップ / --tt-thumb: ホバー時ツールチップ */
-  --ed-thumb: 120px;
-  --tt-thumb: 180px;
-  /* サムネ枠のアスペクト比(幅/高さ)。既定は漫画ページ相当の縦長 1:√2(ISO A系)。
-     縦長ページはこの枠にほぼ一致して充填され、比率が違う画像もcontainで全面表示 */
-  --thumb-ar: 1 / 1.414;
 }
 *{ box-sizing: border-box; margin: 0; padding: 0; }
 html, body{ height: 100%; }
@@ -331,33 +323,84 @@ header h1{
   display: inline-block;
   padding: 18px 60px 60px 18px;
 }
+/* 下地（キャンバス）。マス目という概念は廃止したので既定は無地の紙。
+   罫線は「目安の飾り」であってスナップ先ではない（設定で無地/方眼/ドット） */
 #grid{
   position: relative;
   background: #fff;
   border: 1px solid #c9d2d9;
-  background-image:
-    linear-gradient(to right, var(--line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
   /* サイズ・background-size は JS が設定 */
   touch-action: pan-x pan-y; /* スクロールは許可、ダブルタップズームは無効化 */
   user-select: none;
   -webkit-user-select: none;
 }
+#grid.paper-grid{
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+}
+#grid.paper-dot{
+  background-image: radial-gradient(circle at 1px 1px, var(--line) 1.4px, transparent 1.5px);
+}
+/* ペン/消しゴム中は下地の指ドラッグを筆記に使う（スクロールは2本指） */
+#grid.mode-ink{ touch-action: none; }
+#grid.mode-ink .item{ pointer-events: none; }
+#grid.mode-pen{ cursor: crosshair; }
+#grid.mode-eraser{ cursor: cell; }
 
-/* ---- ブロック ---- */
-.block{
+/* 手書きインク層（下地の一部＝アイテムの下）。SVGなので拡大しても線が滲まない */
+#ink{
   position: absolute;
-  border-radius: 5px;
-  border: 1.5px solid;
-  box-shadow: 0 1px 2px rgba(0,0,0,.10);
-  padding: 3px 5px;
+  left: 0; top: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* ---- アイテム（テキストブロック / 画像オブジェクト）共通 ----
+   自由座標なので重なりは許容。重なり順は items 配列の順（＝DOM順） */
+.item{
+  position: absolute;
   cursor: grab;
   z-index: 2;
   touch-action: pan-x pan-y; /* 長押し前の指の移動はスクロールとして扱う */
   user-select: none;
   -webkit-user-select: none;
+}
+.item.selected{ z-index: 3; }
+.item.dragging{
+  opacity: .88;
+  cursor: grabbing;
+  z-index: 20;
+}
+.item.settle{
+  transition: left .13s ease-out, top .13s ease-out,
+              width .13s ease-out, height .13s ease-out;
+}
+
+/* ---- テキストブロック（メモを置く手段） ---- */
+.block{
+  border-radius: 5px;
+  border: 1.5px solid;
+  box-shadow: 0 1px 2px rgba(0,0,0,.10);
+  padding: 3px 5px;
   /* overflowは.block-body側でクリップ（マークバッジが角からはみ出すため） */
 }
+
+/* ---- 画像オブジェクト（ブロックとは独立して自由配置） ----
+   枠も背景も持たない＝画像そのものが盤面に置かれて見える。
+   containで収めるので、枠の比率が画像と違っても切れず歪まない */
+.image img{
+  display: block;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+  border-radius: 2px;
+}
+.image.selected{ outline: 2px solid var(--accent); outline-offset: 2px; }
+.image.dragging{ filter: drop-shadow(0 8px 18px rgba(0,0,0,.32)); }
+.image .handle{ right: -9px; bottom: -9px; }
 .block-body{
   max-height: 100%;
   overflow: hidden;
@@ -365,7 +408,7 @@ header h1{
 }
 /* マークバッジの下に文字が潜り込まないよう、タイトル1行目の幅だけを削るフロート。
    text-indentと違い、入りきらない文字はクリップされず次の行へ折り返す。
-   幅・高さ（=バッジの食い込み分）はlayoutBlockが設定する */
+   幅・高さ（=バッジの食い込み分）はlayoutItemが設定する */
 .mark-pad{ float: left; }
 /* textの1行目=タイトルとして強調表示 */
 .block-title{
@@ -395,20 +438,9 @@ header h1{
 }
 .block.selected{
   box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgba(0,0,0,.15);
-  z-index: 3;
 }
 .block.dragging{
-  opacity: .88;
-  cursor: grabbing;
   box-shadow: 0 8px 20px rgba(0,0,0,.28);
-  z-index: 20;
-}
-.block.invalid{
-  box-shadow: 0 0 0 2.5px var(--danger), 0 8px 20px rgba(0,0,0,.25);
-}
-.block.settle{
-  transition: left .13s ease-out, top .13s ease-out,
-              width .13s ease-out, height .13s ease-out;
 }
 
 /* リサイズハンドル（選択中のみ） */
@@ -424,23 +456,9 @@ header h1{
   touch-action: none;
   z-index: 21;
 }
-.block.selected .handle{ display: block; }
+.item.selected .handle{ display: block; }
 /* 複数選択中はリサイズ不可（ハンドルを出さない） */
-.block.selected.multi .handle{ display: none; }
-
-/* 配置可否ゴースト（複数ブロック移動時は動的に増える） */
-.ghost{
-  position: absolute;
-  border: 2px dashed #4f9e58;
-  background: rgba(110, 200, 120, .16);
-  border-radius: 6px;
-  pointer-events: none;
-  z-index: 6;
-}
-.ghost.invalid{
-  border-color: var(--danger);
-  background: rgba(220, 70, 70, .16);
-}
+.item.selected.multi .handle{ display: none; }
 
 /* 範囲選択のラバーバンド */
 #marquee{
@@ -545,6 +563,74 @@ header h1{
 #zoomCtl button:hover{ background: #eef1f4; }
 #zoomCtl button:disabled{ opacity: .3; cursor: default; background: transparent; }
 
+/* ---- 道具ドック（左下・モード切替とアイテム追加） ----
+ * ズームピル（右下）と対になる控えめな常設UI。ペン系を選ぶと
+ * 上に色・太さ・取り消しの段が生える */
+#dock{
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  z-index: 46;
+  opacity: .72;
+  transition: opacity .15s;
+}
+@media (hover: hover){
+  #dock{ opacity: .45; }
+  #dock:hover{ opacity: 1; }
+}
+#dock.hidden{ display: none; }
+.dock-row{
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: #fff;
+  border: 1px solid #d4dade;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.14);
+}
+.dock-row[hidden]{ display: none; }
+.dbtn{
+  width: 30px; height: 30px;
+  border: none;
+  background: transparent;
+  color: #55606a;
+  font-size: 15px;
+  line-height: 1;
+  font-family: inherit;
+  border-radius: 10px;
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+}
+.dbtn:hover{ background: #eef1f4; }
+.dbtn:disabled{ opacity: .3; cursor: default; background: transparent; }
+.dbtn.active{ background: var(--accent); color: #fff; }
+.dsep{ width: 1px; height: 20px; background: #dde3e8; margin: 0 3px; flex: none; }
+/* ペンの色・太さ見本 */
+.pen-sw{
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+  background-clip: content-box;
+}
+.pen-sw.active{ border-color: #444; }
+.pen-w{
+  width: 28px; height: 28px;
+  border: none; background: transparent; border-radius: 9px;
+  cursor: pointer; flex: none; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.pen-w.active{ background: #eef1f4; }
+.pen-w i{ display: block; background: #55606a; border-radius: 999px; }
+
 /* ---- ツールバー（画面下部固定・モバイル親指圏） ---- */
 #toolbar{
   position: fixed;
@@ -595,6 +681,7 @@ header h1{
   padding: 0;
 }
 .swatch.active{ box-shadow: 0 0 0 2.5px #444; }
+.swatch:disabled{ opacity: .35; cursor: default; } /* 画像だけを選んでいる時 */
 #delBtn{
   margin-left: 10px;
   flex: none;
@@ -619,7 +706,7 @@ header h1{
 .block-marks{
   position: absolute;
   /* 左上角にまたがるバッジ。em基準なのでズーム/文字サイズ設定に位置も追従する。
-     タイトル文字とは重ねない（layoutBlockがマーク幅ぶんタイトルを字下げする） */
+     タイトル文字とは重ねない（layoutItemがマーク幅ぶんタイトルを字下げする） */
   top: -0.4em; left: -0.3em;
   /* マークは少し大きめ表示。ズーム・文字サイズ設定に追従して拡大する */
   font-size: calc(17px * var(--zoom, 1) * var(--fscale, 1));
@@ -639,9 +726,7 @@ header h1{
   position: absolute;
   z-index: 40;
   width: max-content;
-  /* 通常はテキストが読みやすい300px幅。画像サムネを大きくした時は縦長画像
-     1枚(幅=高さ×比率)が収まるよう幅を広げる（画面幅は超えない） */
-  max-width: min(max(300px, calc(var(--tt-thumb, 180px) * 0.72 + 26px)), 92vw);
+  max-width: min(300px, 92vw);
   background: #fffef6;
   border: 1px solid #ddd6b8;
   border-radius: 9px;
@@ -656,113 +741,8 @@ header h1{
 }
 #tooltip .tt-title, #mobilePreview .tt-title{ font-weight: 700; }
 
-/* ---- 画像添付（Phase 4） ---- */
-/* ブロック上のサムネイル帯。タイトル行の直下に入るin-flow要素なので
-   タイトルの可読性を損なわない（入らない小ブロックはアイコン表示に退避） */
-.block-thumbwrap{
-  position: relative;
-  /* 幅・高さはlayoutBlockが縦長比率で設定。ブロック内で中央寄せ */
-  margin: 2px auto 0;
-}
-.block-thumbwrap[hidden]{ display: none; }
-.block-thumb{
-  display: block;
-  width: 100%;
-  height: 100%;
-  /* 帯は縦長比率(√2)に整形済み。縦長ページはそこへほぼ一致して充填され、
-     比率が違う画像もcontainで切らずに全面表示（長方形を維持） */
-  object-fit: contain;
-  object-position: center;
-  border-radius: 3px;
-  background: rgba(255,255,255,.45); /* 読み込み中プレースホルダ */
-}
-img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エラーにしない） */
-.thumb-badge{
-  position: absolute;
-  right: 3px; bottom: 3px;
-  background: rgba(30,36,42,.62);
-  color: #fff;
-  font-size: calc(9px * var(--zoom, 1));
-  line-height: 1;
-  padding: 2px 5px;
-  border-radius: 999px;
-  pointer-events: none;
-}
-.thumb-badge[hidden]{ display: none; }
-/* サムネ帯が入らない小ブロックの退避表示（左下の小さな画像アイコン。
-   タイトルは上端から始まるので重ならない） */
-.block-imgicon{
-  position: absolute;
-  left: 3px; bottom: 1px;
-  font-size: calc(9.5px * var(--zoom, 1));
-  line-height: 1.2;
-  opacity: .65;
-  pointer-events: none;
-}
-.block-imgicon[hidden]{ display: none; }
-
-/* エディタの画像ストリップ（添付一覧＋追加ボタン）。エディタ直下に浮かぶ */
-#editorImgs{
-  position: absolute;
-  z-index: 30;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end; /* 画像の下端をそろえる（＋ボタンも画像に整列） */
-  gap: 10px;
-  padding: 9px;
-  max-width: 92vw;
-  background: #fff;
-  border: 1px solid #c9d2d9;
-  border-radius: 9px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.22);
-}
-#editorImgs[hidden]{ display: none; }
-.ed-thumb{
-  position: relative;
-  /* 上端にボタン用のガター(24px)を確保し、操作ボタンを画像に被せない。
-     枠は縦長(--thumb-ar)。幅は画像の高さから算出されるので、コンテナは
-     画像に合わせて自動幅になる。高さは設定スライダー(--ed-thumb)で変更 */
-  padding-top: 24px;
-  flex: none;
-}
-.ed-thumb img{
-  height: var(--ed-thumb, 120px);
-  aspect-ratio: var(--thumb-ar);
-  width: auto;              /* 高さ×比率で縦長の枠に。画像はcontainで全面表示 */
-  object-fit: contain;      /* 縦長ページを切らない（比率違いはレターボックス） */
-  border-radius: 6px;
-  display: block;
-  background: #eef1f4;
-  cursor: zoom-in;
-}
-.ed-thumb.is-thumb img{ box-shadow: 0 0 0 2px var(--accent); }
-.ed-del, .ed-tofront{
-  position: absolute;
-  top: 1px;              /* 画像上のガター内に置き、画像と重ならない */
-  width: 21px; height: 21px;
-  border-radius: 50%;
-  border: 1px solid #c9d2d9;
-  background: #fff;
-  color: #55606a;
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-  box-shadow: 0 1px 3px rgba(0,0,0,.2);
-}
-.ed-del{ right: 1px; color: var(--danger); }
-.ed-tofront{ left: 1px; }
-.ed-add{
-  height: var(--ed-thumb, 120px); aspect-ratio: var(--thumb-ar); width: auto;
-  border: 1.5px dashed #b8c2cb;
-  border-radius: 6px;
-  background: #fff;
-  color: #8a939b;
-  font-size: 28px;
-  line-height: 1;
-  cursor: pointer;
-  flex: none;
-}
+/* オフラインで未キャッシュの画像（エラーにはせず薄く表示する） */
+img.img-missing{ opacity: .35; }
 
 /* ライトボックス（画像の拡大表示。クリック/Escで閉じる） */
 #lightbox{
@@ -838,20 +818,6 @@ img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エ�
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* ツールチップ/全文プレビューの画像列（表示専用の原則を維持・ボタン無し） */
-.tt-imgs{
-  display: flex; flex-wrap: wrap; gap: 4px;
-  margin-top: 6px;
-}
-.tt-imgs img{
-  height: var(--tt-thumb, 180px);
-  aspect-ratio: var(--thumb-ar);
-  width: auto;              /* 縦長の枠。高さ基準で幅は比率から算出 */
-  object-fit: contain;      /* 縦長ページを切らずに全面表示 */
-  border-radius: 5px;
-  background: #eee9d2;
-}
-
 /* ---- 全文プレビュー（モバイル・選択中でクリップ時のみ画面下部に表示） ---- */
 #mobilePreview{
   position: fixed;
@@ -916,12 +882,12 @@ img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エ�
   z-index: 60;
   white-space: nowrap;
 }
-.block.placing-preview{
+.item.placing-preview{
   opacity: .75;
   pointer-events: none;
   z-index: 22;
-  box-shadow: 0 8px 20px rgba(0,0,0,.25);
 }
+.block.placing-preview{ box-shadow: 0 8px 20px rgba(0,0,0,.25); }
 
 /* ---- 色プリセット8色（方眼紙上で目に痛くない彩度 / 濃色文字） ---- */
 .color-green    { background:#c9ecb4; border-color:#93c47d; color:#2b5e1d; }
@@ -956,7 +922,7 @@ img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エ�
 <header>
   <button id="backBtn" type="button" title="作品一覧へ戻る">←</button>
   <h1 id="boardTitle">無題</h1>
-  <span class="hint">空きマスをダブルクリックでブロック作成、空きマスからドラッグで範囲選択。モバイルは長押しでドラッグ / 範囲選択</span>
+  <span class="hint">下地をダブルクリックでメモ追加、ドラッグで範囲選択。モバイルは長押しでドラッグ / 範囲選択。左下の道具でペン書き・画像追加</span>
   <span id="saveIndicator"><span class="dot"></span><span id="saveText">保存済み</span></span>
   <button id="syncBtn" type="button" title="今すぐ同期" hidden>⟳</button>
   <button id="settingsBtn" type="button" title="設定">⚙</button>
@@ -965,20 +931,19 @@ img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エ�
 <div id="scroller">
   <div id="boardWrap">
     <div id="grid">
-      <div id="ghost" class="ghost" hidden></div>
+      <svg id="ink" aria-hidden="true"></svg>
       <div id="marquee" hidden></div>
       <div id="tooltip" hidden></div>
       <textarea id="editorTa" hidden autocomplete="off"
                 placeholder="1行目がタイトル&#10;2行目からメモ…"></textarea>
-      <div id="editorImgs" hidden></div>
     </div>
     <div id="colCtl" class="edge-ctl">
-      <button id="colPlus"  title="列を追加" aria-label="列を追加">＋</button>
-      <button id="colMinus" title="右端の列を削除" aria-label="右端の列を削除">−</button>
+      <button id="colPlus"  title="盤面を右へ広げる" aria-label="盤面を右へ広げる">＋</button>
+      <button id="colMinus" title="盤面の右側を詰める" aria-label="盤面の右側を詰める">−</button>
     </div>
     <div id="rowCtl" class="edge-ctl">
-      <button id="rowPlus"  title="行を追加" aria-label="行を追加">＋</button>
-      <button id="rowMinus" title="下端の行を削除" aria-label="下端の行を削除">−</button>
+      <button id="rowPlus"  title="盤面を下へ広げる" aria-label="盤面を下へ広げる">＋</button>
+      <button id="rowMinus" title="盤面の下側を詰める" aria-label="盤面の下側を詰める">−</button>
     </div>
   </div>
 </div>
@@ -986,6 +951,25 @@ img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エ�
   <button id="zoomOut" type="button" aria-label="縮小">−</button>
   <button id="zoomLabel" type="button" title="100%（画面幅フィット）に戻す">100%</button>
   <button id="zoomIn" type="button" aria-label="拡大">＋</button>
+</div>
+<!-- 道具ドック: モード切替（選択 / ペン / 消しゴム）とアイテム追加 -->
+<div id="dock">
+  <div id="penBar" class="dock-row" hidden>
+    <span id="penColors" style="display:flex; gap:2px;"></span>
+    <span class="dsep"></span>
+    <span id="penWidths" style="display:flex; gap:2px;"></span>
+    <span class="dsep"></span>
+    <button id="penUndo" class="dbtn" type="button" title="直前の線を取り消す">↶</button>
+  </div>
+  <div class="dock-row">
+    <button id="modeSelect" class="dbtn active" type="button" title="選択・移動">✋</button>
+    <button id="modePen" class="dbtn" type="button" title="ペン（下地に手書き）">✎</button>
+    <button id="modeErase" class="dbtn" type="button" title="消しゴム（手書きの線を消す）">⌫</button>
+    <span class="dsep"></span>
+    <button id="addBlockBtn" class="dbtn" type="button" title="メモブロックを追加">📝</button>
+    <button id="addImgBtn" class="dbtn" type="button" title="画像を追加">🖼</button>
+    <button id="addDbxBtn" class="dbtn" type="button" title="Dropboxから画像を追加" hidden>☁</button>
+  </div>
 </div>
 </div><!-- /boardView -->
 
@@ -995,7 +979,10 @@ img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エ�
     <button id="flagBtn" class="tbtn" data-mark="flag" title="フラッグ">⚑</button>
     <button id="crossBtn" class="tbtn" data-mark="cross" title="×マーク（無効・保留など）">×</button>
     <button id="editBtn" class="tbtn coarse-only" title="テキストを編集">編集</button>
-    <button id="copyBtn" class="tbtn" title="ブロックをコピー">コピー</button>
+    <button id="copyBtn" class="tbtn" title="コピー">コピー</button>
+    <button id="frontBtn" class="tbtn" title="最前面へ">⤒</button>
+    <button id="backBtnZ" class="tbtn" title="最背面へ">⤓</button>
+    <button id="fitBtn" class="tbtn" title="画像を元の縦横比に合わせる">⤢</button>
   </span>
   <span class="tsep"></span>
   <!-- 色スウォッチはJSで生成 -->
@@ -1054,21 +1041,19 @@ img.img-missing{ opacity: .35; } /* オフラインで未キャッシュ（エ�
     </div>
     <div class="set-sep"></div>
     <div>
-      <div class="set-label">画像サムネの大きさ（この端末のみ）</div>
-      <div class="fs-row">
-        <span class="fs-sublabel">エディタ</span>
-        <input id="edThumbRange" type="range" min="72" max="320" step="4"
-               aria-label="エディタの画像サムネの高さ（px）">
-        <span id="edThumbVal" class="fs-val">120px</span>
-        <button id="edThumbReset" type="button" class="pal-reset" title="標準に戻す">↺</button>
-      </div>
-      <div class="fs-row">
-        <span class="fs-sublabel">ホバー</span>
-        <input id="ttThumbRange" type="range" min="80" max="480" step="4"
-               aria-label="カーソルを当てた時のプレビュー画像の高さ（px）">
-        <span id="ttThumbVal" class="fs-val">180px</span>
-        <button id="ttThumbReset" type="button" class="pal-reset" title="標準に戻す">↺</button>
-      </div>
+      <div class="set-label">下地の目安線（この端末のみ・スナップはしません）</div>
+      <label class="set-opt">
+        <input type="radio" name="paperStyle" value="none">
+        <span>無地</span>
+      </label>
+      <label class="set-opt">
+        <input type="radio" name="paperStyle" value="grid">
+        <span>方眼（薄い罫線）</span>
+      </label>
+      <label class="set-opt">
+        <input type="radio" name="paperStyle" value="dot">
+        <span>ドット</span>
+      </label>
     </div>
     <div class="set-sep"></div>
     <div>
@@ -1140,24 +1125,34 @@ const DEFAULT_PALETTE = {
   orange:   { bg:'#fbd6a2', border:'#e0a25c', fg:'#754409' },
   gray:     { bg:'#dce0e4', border:'#a8b1b9', fg:'#39434c' }
 };
-// マスの実サイズ範囲(px)。グリッド細分化(1マス=旧マスの1/4)に合わせ、
-// 見た目の寸法を保つため旧値のさらに半分にしている（基準2×2マス=旧1マス=22〜48px）
-const CELL_MIN = 11, CELL_MAX = 24;
-// 新規ブロック・基準の既定サイズ（細分化後の2×2マス＝旧1マス相当）
-const BASE_UNIT = 2;
-// 行・列の＋−ボタンの増減ステップ(マス)。どちらも見えている目盛りどおり1マス刻み
-const ROW_STEP = 1, COL_STEP = 1;
+const MARK_KINDS = ['star', 'flag', 'cross'];
+/* ---------- 盤面座標（Phase 5: マス目の廃止） ----------
+ * 盤面は「マス」ではなく連続した自由座標(board-px)で表す。UNIT は旧データを
+ * 換算するための基準（旧マス1つ = UNIT board-px）で、スナップ単位ではない。
+ * 画面へは scale(= board-px あたりの実px) を掛けて描画する */
+const UNIT = 24;
+const ITEM_DEFAULT = 2 * UNIT;   // 新規メモブロックの既定サイズ（旧「基準2×2マス」相当）
+const ITEM_MIN = 16;             // アイテムの最小寸法(board-px)
+const BOARD_STEP = UNIT;         // 盤面サイズの＋−ボタンの増減(board-px)
+const BOARD_MIN = 2 * UNIT;      // 盤面の最小寸法（アイテム1つ置ける大きさ）
+const BOARD_MAX = 120 * UNIT;    // 盤面の最大寸法
+// 画面幅フィット時の scale の下限・上限（旧CELL_MIN/MAXをboard-px基準に換算）
+const SCALE_MIN = 11 / UNIT, SCALE_MAX = 24 / UNIT;
+// ズーム適用後の scale の下限・上限（旧CELL_ZMIN/ZMAX相当）
+const SCALE_ZMIN = 6 / UNIT, SCALE_ZMAX = 100 / UNIT;
+// v3以前の1マスはv4の2マス分（グリッド細分化前）。旧データ換算に使う
+const LEGACY_CELL = 2;
+/* ---------- 手書きインク（下地キャンバス） ---------- */
+const PEN_COLORS = ['#333a40', '#d93a3a', '#2f6fd0', '#2f8f4e', '#d99f00'];
+const PEN_WIDTHS = [1.5, 3, 6];        // board-px単位。ズームに追従して太さも変わる
+const INK_MIN_SEG_PX = 2.2;            // これ未満の移動は点として捨てる（実px）
+const ERASER_R_PX = 12;                // 消しゴムの当たり半径(実px)
 // 表示倍率(ズーム)のステップ。100%=画面幅フィット。PCで小さすぎるとき拡大するための機能
 const ZOOM_STEPS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 // ブロック文字サイズ設定はスライダーで数値指定（基準フォントへの倍率）。
 // FONT_SCALESは旧4段階設定('small'等)を数値へ読み替えるための変換表
 const FSCALE_MIN = 0.5, FSCALE_MAX = 2;
 const FONT_SCALES = { small: 0.85, standard: 1, large: 1.2, xlarge: 1.45 };
-// 画像サムネの高さ(px)の可変範囲と既定値（幅は--thumb-arから算出）。設定パネルのスライダーで変更
-const ED_THUMB_MIN = 72, ED_THUMB_MAX = 320, ED_THUMB_DEFAULT = 120; // エディタの画像ストリップ
-const TT_THUMB_MIN = 80, TT_THUMB_MAX = 480, TT_THUMB_DEFAULT = 180; // ホバー時ツールチップ
-const CELL_ZMIN = 6, CELL_ZMAX = 100; // ズーム適用後のマス実サイズの下限・上限(px)。細分化に合わせ半分
-const MAX_COLS = 120, MAX_ROWS = 120;  // 細分化(×2)に合わせ上限も倍。旧最大60マス=新120マス
 const LONG_PRESS_MS = 300;            // モバイル長押しドラッグ開始
 const DRAG_START_PX = 4;              // マウスのドラッグ開始しきい値
 const LP_CANCEL_PX  = 10;             // 長押し前にこの距離動いたらスクロール扱い
@@ -1178,8 +1173,9 @@ const SETTINGS_DEFAULTS = {
   editorConfirmKey: 'standard', // 'standard' | 'shift-enter'
   displayZoom: 1, // 表示倍率。画面幅フィット(=100%)に対する倍率。端末ローカル設定
   fontScale: 1, // ブロックの文字サイズ倍率(数値)。旧値はFONT_SCALESのキー文字列。端末ローカル設定
-  edThumbSize: ED_THUMB_DEFAULT, // エディタ画像ストリップのサムネ高さ(px)。端末ローカル設定
-  ttThumbSize: TT_THUMB_DEFAULT, // ホバー時ツールチップの画像高さ(px)。端末ローカル設定
+  paperStyle: 'none', // 下地の目安線 'none'|'grid'|'dot'。飾りでありスナップはしない
+  penColor: PEN_COLORS[0], // 手書きペンの色。端末ローカル設定
+  penWidth: PEN_WIDTHS[1], // 手書きペンの太さ(board-px)。端末ローカル設定
   palette: {} // プリセット色の上書き { colorId: {bg,border,fg} }。端末ローカル設定
 };
 function getSetting(k){
@@ -1200,20 +1196,19 @@ function fontScaleValue(){
   const n = typeof v === 'number' ? v : FONT_SCALES[v] ?? 1;
   return Math.max(FSCALE_MIN, Math.min(FSCALE_MAX, n));
 }
-// 画像サムネの高さ(px)を範囲内に収めて返す（不正値・未設定は既定値）
-function thumbSizeValue(key, lo, hi, def){
-  const n = Math.round(Number(getSetting(key)));
-  return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def;
-}
-const edThumbSize = () => thumbSizeValue('edThumbSize', ED_THUMB_MIN, ED_THUMB_MAX, ED_THUMB_DEFAULT);
-const ttThumbSize = () => thumbSizeValue('ttThumbSize', TT_THUMB_MIN, TT_THUMB_MAX, TT_THUMB_DEFAULT);
-// サムネ高さをCSS変数へ反映（tt-imgs / ed-thumb が参照）。:root に載せて全体へ効かせる
-function applyThumbSizes(){
-  const r = document.documentElement.style;
-  r.setProperty('--ed-thumb', edThumbSize() + 'px');
-  r.setProperty('--tt-thumb', ttThumbSize() + 'px');
-}
-applyThumbSizes(); // 起動時に保存値を適用（DOM構築前でも:rootへ載せられる）
+// 手書きペンの現在値（不正値・未設定は既定へ丸める）
+const penColor = () => {
+  const c = getSetting('penColor');
+  return PEN_COLORS.includes(c) ? c : PEN_COLORS[0];
+};
+const penWidth = () => {
+  const n = Number(getSetting('penWidth'));
+  return PEN_WIDTHS.includes(n) ? n : PEN_WIDTHS[1];
+};
+const paperStyle = () => {
+  const p = getSetting('paperStyle');
+  return ['none', 'grid', 'dot'].includes(p) ? p : 'none';
+};
 
 // マウス環境か（ハイブリッド端末はfine優先）。ツールバー配置等の分岐に使う
 const finePointer = () => window.matchMedia('(pointer: fine)').matches;
@@ -1230,69 +1225,159 @@ const deviceId = (() => {
 
 /* ---------- データモデル ---------- */
 function genId(){ return 'blk-' + Math.random().toString(36).slice(2, 10); }
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// 盤面座標は連続値。JSONを膨らませないよう小数第1位で丸めて保存する
+const r1 = n => Math.round(n * 10) / 10;
+const num = (v, def) => (Number.isFinite(Number(v)) ? Number(v) : def);
 
 function newDoc(name){
   // 縦長デフォルト（モバイル配慮の縦長ファースト方針。以降のUIも縦長を優先して設計する）
   return {
-    version: 4,
+    version: 5,
     title: name || '無題',
     updatedAt: null,  // ISO文字列。保存のたびに更新
     device: null,     // 最終更新した端末の識別子
-    // v4: グリッド細分化。マスは旧の縦横半分（基準2×2マス=旧1マス）。旧6×12 → 12×24
-    boards: [{ id: 'board-1', grid: { cols: 6 * BASE_UNIT, rows: 12 * BASE_UNIT }, blocks: [] }]
+    // v5: マス目を廃止。size は board-px、items は配列順＝重なり順、
+    //     strokes は下地キャンバスへの手書き
+    boards: [{ id: 'board-1', size: { w: 12 * UNIT, h: 24 * UNIT },
+               items: [], strokes: [] }]
   };
 }
 function newBlock(x, y){
   // version 2: title/memo を text に統一（1行目=タイトルとして表示）
-  // version 3: thumb(未使用)を廃止し images(ファイル名の配列。1枚目=サムネ)を追加
-  // version 4: 既定サイズは基準の2×2マス（=旧1マス相当）
-  return { id: genId(), x, y, w: BASE_UNIT, h: BASE_UNIT,
-           text: '', color: 'green', marks: [], images: [] };
+  // version 5: 画像はブロックから切り離したので images は持たない（テキスト専用）
+  return { id: genId(), type: 'block', x, y, w: ITEM_DEFAULT, h: ITEM_DEFAULT,
+           text: '', color: 'green', marks: [] };
+}
+function newImageItem(x, y, w, h, name){
+  return { id: genId(), type: 'image', x, y, w, h, name };
 }
 // textを「1行目（タイトル）」と「2行目以降」に分割
 function splitText(text){
   const i = text.indexOf('\n');
   return i < 0 ? [text, ''] : [text.slice(0, i), text.slice(i + 1)];
 }
-// 復元データの欠損フィールドを補い、旧バージョンは段階変換で version 4 へ:
-// v1（title/memo分離）→ text = title + "\n" + memo に統合（v2）
-// v2（thumb未使用）  → thumbを廃止し images 配列へ（v3）
-// v3（旧マス目盛り）  → グリッド細分化。全座標・グリッドを2倍して見た目の寸法を保つ（v4）
+
+/* ---------- 正規化・マイグレーション ----------
+ * v1（title/memo分離）→ text = title + "\n" + memo に統合（v2）
+ * v2（thumb未使用）  → thumbを廃止し images 配列へ（v3）
+ * v3（旧マス目盛り）  → グリッド細分化（v4）
+ * v4（マス目・ブロック）→ 自由座標へ。grid → size(board-px)、blocks → items、
+ *   ブロックに紐づいていた画像は独立した画像オブジェクトへ切り出す（v5） */
 function normalizeDoc(d){
   if (!d || !Array.isArray(d.boards) || !d.boards[0]) return newDoc();
   d.title = typeof d.title === 'string' ? d.title : '無題';
   d.updatedAt = typeof d.updatedAt === 'string' ? d.updatedAt : null;
   d.device = typeof d.device === 'string' ? d.device : null;
-  // v3以前は旧マス目盛り。細分化スケール(v4)へ移す際、全座標・グリッドをBASE_UNIT倍する。
-  // これで「全マスが1/4サイズ」にならず、見た目の寸法を保ったまま目盛りだけ細かくなる。
-  // 既にv4のデータは係数1（=非変換）なので二重適用されない（冪等）
-  const sc = Number(d.version) >= 4 ? 1 : BASE_UNIT;
-  const bd = d.boards[0];
-  if (!bd.grid || !(bd.grid.cols >= 1) || !(bd.grid.rows >= 1)) bd.grid = { cols: 6, rows: 12 };
-  bd.grid.cols = Math.min(MAX_COLS, Math.max(1, Math.floor(bd.grid.cols) * sc));
-  bd.grid.rows = Math.min(MAX_ROWS, Math.max(1, Math.floor(bd.grid.rows) * sc));
-  bd.blocks = (Array.isArray(bd.blocks) ? bd.blocks : []).map(b => ({
-    id: b.id || genId(),
-    x: Math.max(0, b.x|0) * sc, y: Math.max(0, b.y|0) * sc,
-    w: Math.max(1, b.w|0) * sc, h: Math.max(1, b.h|0) * sc,
-    // v1移行: タイトルのみ→text=title / メモのみ→text=memo / 両方→改行で連結
-    text: typeof b.text === 'string' ? b.text
-        : [b.title, b.memo].filter(s => typeof s === 'string' && s !== '').join('\n'),
-    color: COLOR_IDS.includes(b.color) ? b.color : 'green',
-    marks: Array.isArray(b.marks) ? b.marks : [],
-    // v2→v3移行: images = thumb ? [thumb] : []（thumbは常にnull運用だったため実質[]）
-    images: Array.isArray(b.images)
-      ? b.images.filter(s => typeof s === 'string' && s !== '')
-      : (typeof b.thumb === 'string' && b.thumb !== '' ? [b.thumb] : [])
-  }));
-  d.version = 4;
+  const ver = Number(d.version) || 1;
+  d.boards = [ver >= 5 ? normalizeBoard(d.boards[0]) : legacyBoardToV5(d.boards[0], ver)];
+  d.version = 5;
   return d;
+}
+function normalizeStrokes(arr){
+  const out = [];
+  for (const s of (Array.isArray(arr) ? arr : [])){
+    const p = Array.isArray(s?.p) ? s.p.filter(n => Number.isFinite(Number(n))).map(Number) : [];
+    if (p.length < 2) continue;
+    out.push({
+      c: typeof s.c === 'string' ? s.c : PEN_COLORS[0],
+      w: clamp(num(s.w, PEN_WIDTHS[1]), 0.5, 64),
+      p: p.slice(0, p.length - (p.length % 2)),
+    });
+  }
+  return out;
+}
+function normalizeBoard(bd){
+  const size = {
+    w: clamp(Math.round(num(bd?.size?.w, 12 * UNIT)), BOARD_MIN, BOARD_MAX),
+    h: clamp(Math.round(num(bd?.size?.h, 24 * UNIT)), BOARD_MIN, BOARD_MAX),
+  };
+  const out = [];
+  for (const it of (Array.isArray(bd?.items) ? bd.items : [])){
+    if (!it) continue;
+    const w = clamp(num(it.w, ITEM_DEFAULT), ITEM_MIN, size.w);
+    const h = clamp(num(it.h, ITEM_DEFAULT), ITEM_MIN, size.h);
+    const x = clamp(num(it.x, 0), 0, size.w - w);
+    const y = clamp(num(it.y, 0), 0, size.h - h);
+    if (it.type === 'image'){
+      if (typeof it.name !== 'string' || !it.name) continue; // 参照切れは捨てる
+      out.push({ id: it.id || genId(), type: 'image', x, y, w, h, name: it.name });
+    } else {
+      out.push({
+        id: it.id || genId(), type: 'block', x, y, w, h,
+        text: typeof it.text === 'string' ? it.text : '',
+        color: COLOR_IDS.includes(it.color) ? it.color : 'green',
+        marks: Array.isArray(it.marks) ? it.marks.filter(m => MARK_KINDS.includes(m)) : [],
+      });
+    }
+  }
+  return { id: bd?.id || 'board-1', size, items: out, strokes: normalizeStrokes(bd?.strokes) };
+}
+/* v4以前（マス目＋ブロック）→ v5（自由座標＋アイテム）。
+ * 座標は「旧1マス = UNIT board-px」で換算するので見た目の寸法は変わらない。
+ * ブロックに添付されていた画像は独立オブジェクトになるが、既存ブロックの上に
+ * 重ねると内容が隠れてしまうので、盤面の右側に新しい帯を作って元の並び順で置く
+ * （重なりゼロ・取りこぼしゼロを優先。あとは自由に動かしてもらう） */
+function legacyBoardToV5(bd, ver){
+  const sc = (ver >= 4 ? 1 : LEGACY_CELL) * UNIT;
+  const size = {
+    w: clamp(Math.round(num(bd?.grid?.cols, 12) * sc), BOARD_MIN, BOARD_MAX),
+    h: clamp(Math.round(num(bd?.grid?.rows, 24) * sc), BOARD_MIN, BOARD_MAX),
+  };
+  const out = [];
+  const carried = []; // 切り出す画像 { y, names[] }
+  for (const b of (Array.isArray(bd?.blocks) ? bd.blocks : [])){
+    if (!b) continue;
+    const x = Math.max(0, b.x | 0) * sc, y = Math.max(0, b.y | 0) * sc;
+    const w = Math.max(1, b.w | 0) * sc, h = Math.max(1, b.h | 0) * sc;
+    // v1移行: タイトルのみ→text=title / メモのみ→text=memo / 両方→改行で連結
+    const text = typeof b.text === 'string' ? b.text
+      : [b.title, b.memo].filter(s => typeof s === 'string' && s !== '').join('\n');
+    // v2→v3移行: images = thumb ? [thumb] : []（thumbは常にnull運用だったため実質[]）
+    const names = Array.isArray(b.images)
+      ? b.images.filter(s => typeof s === 'string' && s !== '')
+      : (typeof b.thumb === 'string' && b.thumb !== '' ? [b.thumb] : []);
+    // 画像だけのブロックは器としての役目が終わるので残さない（画像が本体になる）
+    if (text !== '' || !names.length){
+      out.push({
+        id: b.id || genId(), type: 'block', x, y, w, h, text,
+        color: COLOR_IDS.includes(b.color) ? b.color : 'green',
+        marks: Array.isArray(b.marks) ? b.marks.filter(m => MARK_KINDS.includes(m)) : [],
+      });
+    }
+    if (names.length) carried.push({ y, names });
+  }
+  if (carried.length){
+    const ih = 4 * UNIT, iw = Math.round(ih / 1.414), gap = Math.round(UNIT / 3);
+    const x0 = size.w + UNIT;
+    let cy = 0, right = x0;
+    carried.sort((a, b) => a.y - b.y); // 元の縦位置の順を保って並べる
+    for (const c of carried){
+      let cx = x0;
+      for (const name of c.names){
+        out.push(newImageItem(cx, cy, iw, ih, name));
+        cx += iw + gap;
+      }
+      right = Math.max(right, cx - gap);
+      cy += ih + gap;
+    }
+    size.w = clamp(right + UNIT, size.w, BOARD_MAX);
+    size.h = clamp(cy + UNIT, size.h, BOARD_MAX);
+    // 盤面上限に当たった場合に備えて位置を枠内へ収め直す
+    for (const it of out){
+      it.w = clamp(it.w, ITEM_MIN, size.w);
+      it.h = clamp(it.h, ITEM_MIN, size.h);
+      it.x = clamp(it.x, 0, size.w - it.w);
+      it.y = clamp(it.y, 0, size.h - it.h);
+    }
+  }
+  return { id: bd?.id || 'board-1', size, items: out, strokes: [] };
 }
 // 旧バージョンのデータを読み込む時は、変換前の生データを旧docsストアに退避して
 // から変換する（Phase 3のマイグレーションと同じ「消失事故を絶対に起こさない」方針）
 async function backupOldVersion(name, doc){
   try{
-    const ver = (doc.version >= 1 && doc.version <= 3) ? doc.version : 1;
+    const ver = (doc.version >= 1 && doc.version <= 4) ? doc.version : 1;
     const db = await openDB();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(DB_STORE, 'readwrite');
@@ -1305,7 +1390,7 @@ async function backupOldVersion(name, doc){
   }
 }
 async function migrateDoc(name, doc){
-  if (doc && Array.isArray(doc.boards) && Number(doc.version) < 4) await backupOldVersion(name, doc);
+  if (doc && Array.isArray(doc.boards) && Number(doc.version) < 5) await backupOldVersion(name, doc);
   return normalizeDoc(doc);
 }
 
@@ -1314,34 +1399,43 @@ const state = {
   doc: newDoc(),
   currentName: null, // 開いている作品名（titlesストアのキー）
   rec: null,         // 現在の作品レコード { name, doc, rev, dirty, updatedAt, syncedAt }
-  selIds: [],      // 選択中ブロックID（範囲選択で複数になる）
+  mode: 'select',  // 'select' | 'pen' | 'eraser'（ペン系は下地への手書き）
+  selIds: [],      // 選択中アイテムID（範囲選択で複数になる）
   pending: null,   // pointerdown 済み・ドラッグ未確定のセッション
-  pendingMarquee: null, // 空きマスで pointerdown 済み・範囲選択未確定
+  pendingMarquee: null, // 下地で pointerdown 済み・範囲選択未確定
   marquee: null,   // 範囲選択（ラバーバンド）中
   drag: null,      // 移動ドラッグ中（複数選択時はグループごと）
   resize: null,    // リサイズ中
   editing: null,   // その場エディタで編集中 { id }
-  placing: null,   // コピーの配置先選択中 { items, gx, gy, valid }
+  placing: null,   // コピーの配置先選択中 { items, bx, by }
+  ink: null,       // 手書きストローク描画中
+  inkPan: null,    // ペンモード中の2本指スクロール
   hoverId: null,   // マウスホバー中のブロック（全文ツールチップ用）
   hoverReady: false // ホバー表示遅延（300ms）が経過したか
 };
-let cell = 64;     // 1マスのpxサイズ（renderAllで再計算）
+let scale = 1;     // board-px あたりの実px（renderAllで再計算）
 let zoom = Math.max(ZOOM_STEPS[0], Math.min(ZOOM_STEPS[ZOOM_STEPS.length - 1], Number(getSetting('displayZoom')) || 1)); // 表示倍率
 window.__plotboard = state; // 動作確認・デバッグ用フック
 
 const board  = () => state.doc.boards[0];
-const blocks = () => board().blocks;
-const getBlock = id => blocks().find(b => b.id === id);
+const items  = () => board().items;
+const strokes = () => board().strokes;
+const getItem = id => items().find(i => i.id === id);
+const isBlockItem = it => !!it && it.type !== 'image';
 
 /* ---------- DOM参照 ---------- */
 const $ = id => document.getElementById(id);
 const scroller = $('scroller'), boardWrap = $('boardWrap'), gridEl = $('grid');
-const ghostEl = $('ghost'), marqueeEl = $('marquee'), editorTa = $('editorTa');
+const inkEl = $('ink'), marqueeEl = $('marquee'), editorTa = $('editorTa');
 const toolbarEl = $('toolbar'), swatchesEl = $('swatches'), delBtn = $('delBtn');
 const starBtn = $('starBtn'), flagBtn = $('flagBtn'), crossBtn = $('crossBtn');
 const editBtn = $('editBtn'), copyBtn = $('copyBtn');
+const frontBtn = $('frontBtn'), backZBtn = $('backBtnZ'), fitBtn = $('fitBtn');
+const dockEl = $('dock'), penBar = $('penBar');
+const modeSelectBtn = $('modeSelect'), modePenBtn = $('modePen'), modeEraseBtn = $('modeErase');
+const addBlockBtn = $('addBlockBtn'), addImgBtn = $('addImgBtn'), addDbxBtn = $('addDbxBtn');
 const tooltipEl = $('tooltip'), mobilePreviewEl = $('mobilePreview');
-const editorImgsEl = $('editorImgs'), imgFileInput = $('imgFileInput'), lightboxEl = $('lightbox');
+const imgFileInput = $('imgFileInput'), lightboxEl = $('lightbox');
 const dbxPickerEl = $('dbxPicker'), dbxListEl = $('dbxList'), dbxPathEl = $('dbxPath');
 const dbxBackBtn = $('dbxBack'), dbxStatusEl = $('dbxStatus');
 const settingsBtn = $('settingsBtn'), settingsModal = $('settingsModal');
@@ -1355,7 +1449,7 @@ const saveIndicator = $('saveIndicator'), saveText = $('saveText');
 const colPlus = $('colPlus'), colMinus = $('colMinus');
 const rowPlus = $('rowPlus'), rowMinus = $('rowMinus');
 const zoomCtl = $('zoomCtl'), zoomOutBtn = $('zoomOut'), zoomInBtn = $('zoomIn'), zoomLabelBtn = $('zoomLabel');
-const blockEls = new Map(); // id -> element
+const itemEls = new Map(); // id -> element
 
 /* ---------- IndexedDB 保存 ----------
  * v2: 複数作品対応。'titles'ストアに作品名をキーとしてレコードを保存。
@@ -1483,6 +1577,7 @@ function updateSyncUI(){
   syncBtn.hidden = !bridgeAvailable;
   syncBtn.disabled = !canCloud() || cloudBusy;
   syncBtn.classList.toggle('spin', cloudBusy);
+  addDbxBtn.hidden = !canCloud(); // Dropboxピッカーは接続時のみ
 }
 function scheduleSave(){
   if (!state.rec) return;
@@ -1515,48 +1610,60 @@ document.addEventListener('visibilitychange', () => {
   if (state.rec?.dirty) syncNow();
 });
 
-/* ---------- 幾何・配置判定 ---------- */
+/* ---------- 幾何 ----------
+ * 自由座標なので「置ける/置けない」の判定は無い（重なりは許容し、
+ * 前後関係は items の並び順で表す）。矩形の交差判定は範囲選択で使う */
 function rectsOverlap(a, b){
   return a.x < b.x + b.w && b.x < a.x + a.w &&
          a.y < b.y + b.h && b.y < a.y + a.h;
 }
-function placementValid(x, y, w, h, ignoreId){
-  const g = board().grid;
-  if (x < 0 || y < 0 || x + w > g.cols || y + h > g.rows) return false;
-  return !blocks().some(b => b.id !== ignoreId && rectsOverlap({x, y, w, h}, b));
+// クライアント座標 → 盤面座標(board-px)
+function boardPoint(clientX, clientY){
+  const gr = gridEl.getBoundingClientRect();
+  return { x: (clientX - gr.left) / scale, y: (clientY - gr.top) / scale };
 }
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// アイテムを盤面の内側へ収める
+function clampItem(it){
+  const sz = board().size;
+  it.w = clamp(it.w, ITEM_MIN, sz.w);
+  it.h = clamp(it.h, ITEM_MIN, sz.h);
+  it.x = clamp(it.x, 0, sz.w - it.w);
+  it.y = clamp(it.y, 0, sz.h - it.h);
+  return it;
+}
 
 /* ---------- レンダリング ---------- */
-function computeCell(){
-  // 画面幅フィットのマス寸(=倍率100%)を求め、表示倍率(zoom)を掛ける。
-  // 収まらない場合は横スクロール（マスは正方形固定）
+function computeScale(){
+  // 画面幅フィットの倍率(=100%)を求め、表示倍率(zoom)を掛ける。
+  // 収まらない場合は横スクロール
   const avail = scroller.clientWidth - 18 - 60 - 4; // boardWrapのpadding分
-  const base = clamp(Math.floor(avail / board().grid.cols), CELL_MIN, CELL_MAX);
-  return clamp(Math.round(base * zoom), CELL_ZMIN, CELL_ZMAX);
+  const base = clamp(avail / board().size.w, SCALE_MIN, SCALE_MAX);
+  return clamp(base * zoom, SCALE_ZMIN, SCALE_ZMAX);
 }
 
 function renderAll(){
   cancelPlacing(); // 構造変更・リサイズ時は配置モードを解除
-  cell = computeCell();
-  const g = board().grid;
-  const gw = g.cols * cell, gh = g.rows * cell;
+  scale = computeScale();
+  const sz = board().size;
+  const gw = sz.w * scale, gh = sz.h * scale;
   gridEl.style.width = gw + 'px';
   gridEl.style.height = gh + 'px';
-  gridEl.style.backgroundSize = `${cell}px ${cell}px`;
+  applyPaperStyle();
   // 本文・マークのフォントサイズ = 基準px × 表示倍率(--zoom) × 文字サイズ設定(--fscale)
   // （block-title等の calc(... * var(--zoom) * var(--fscale)) が参照）
   gridEl.style.setProperty('--zoom', zoom);
   gridEl.style.setProperty('--fscale', fontScaleValue());
 
-  // ブロック再構築（クリップ判定に実寸が要るため、DOM追加後にレイアウト）
-  for (const el of blockEls.values()) el.remove();
-  blockEls.clear();
-  for (const b of blocks()){
-    const el = makeBlockEl(b.id);
-    blockEls.set(b.id, el);
+  renderInk();
+
+  // アイテム再構築（クリップ判定に実寸が要るため、DOM追加後にレイアウト）
+  for (const el of itemEls.values()) el.remove();
+  itemEls.clear();
+  for (const it of items()){
+    const el = makeItemEl(it);
+    itemEls.set(it.id, el);
     gridEl.appendChild(el);
-    layoutBlock(b);
+    layoutItem(it);
   }
 
   // 列コントロールは右端の垂直中央、行コントロールは下端の左寄せ
@@ -1572,44 +1679,24 @@ function renderAll(){
   updateTextPreview();
 }
 
+// 下地の目安線（飾り。スナップ先ではない）。旧「基準ブロック1つ分」の間隔で引く
+function applyPaperStyle(){
+  const p = paperStyle();
+  gridEl.classList.toggle('paper-grid', p === 'grid');
+  gridEl.classList.toggle('paper-dot', p === 'dot');
+  const step = ITEM_DEFAULT * scale;
+  gridEl.style.backgroundSize = p === 'none' ? '' : `${step}px ${step}px`;
+}
+
+/* ---- アイテムのDOM ---- */
 let hoverTimer = null;
-function makeBlockEl(id){
-  const el = document.createElement('div');
-  el.dataset.id = id;
-  const body = document.createElement('div');
-  body.className = 'block-body';
-  const pad = document.createElement('span');
-  pad.className = 'mark-pad'; // マークバッジぶんタイトル1行目を避けるスペーサー
-  const title = document.createElement('div');
-  title.className = 'block-title';
-  // サムネイル（images[0]）はタイトルの直下・メモの上に挟む
-  const thumbwrap = document.createElement('div');
-  thumbwrap.className = 'block-thumbwrap';
-  thumbwrap.hidden = true;
-  const thumb = document.createElement('img');
-  thumb.className = 'block-thumb';
-  thumb.alt = '';
-  thumb.draggable = false;
-  const tbadge = document.createElement('span');
-  tbadge.className = 'thumb-badge';
-  tbadge.hidden = true;
-  thumbwrap.append(thumb, tbadge);
-  const rest = document.createElement('div');
-  rest.className = 'block-rest';
-  body.append(pad, title, thumbwrap, rest);
-  const marks = document.createElement('div');
-  marks.className = 'block-marks';
-  const imgicon = document.createElement('span');
-  imgicon.className = 'block-imgicon';
-  imgicon.hidden = true;
-  const more = document.createElement('div');
-  more.className = 'block-more';
-  more.textContent = '…';
-  const handle = document.createElement('div');
-  handle.className = 'handle';
-  el.append(body, marks, imgicon, more, handle);
-  el.addEventListener('pointerdown', onBlockPointerDown);
-  handle.addEventListener('pointerdown', onHandlePointerDown);
+function makeItemEl(it){
+  return it.type === 'image' ? makeImageEl(it) : makeBlockEl(it.id);
+}
+// ドラッグ・ホバーのハンドラはブロックと画像で共通
+function attachItemHandlers(el, id){
+  el.addEventListener('pointerdown', onItemPointerDown);
+  el.querySelector('.handle').addEventListener('pointerdown', onHandlePointerDown);
   // PC: クリップされたブロックにカーソルを合わせると全文ツールチップ（300ms遅延）
   el.addEventListener('pointerenter', e => {
     if (e.pointerType !== 'mouse') return;
@@ -1629,28 +1716,71 @@ function makeBlockEl(id){
     if (state.hoverId === id){ state.hoverId = null; state.hoverReady = false; }
     updateTextPreview();
   });
+}
+function makeBlockEl(id){
+  const el = document.createElement('div');
+  el.dataset.id = id;
+  const body = document.createElement('div');
+  body.className = 'block-body';
+  const pad = document.createElement('span');
+  pad.className = 'mark-pad'; // マークバッジぶんタイトル1行目を避けるスペーサー
+  const title = document.createElement('div');
+  title.className = 'block-title';
+  const rest = document.createElement('div');
+  rest.className = 'block-rest';
+  body.append(pad, title, rest);
+  const marks = document.createElement('div');
+  marks.className = 'block-marks';
+  const more = document.createElement('div');
+  more.className = 'block-more';
+  more.textContent = '…';
+  const handle = document.createElement('div');
+  handle.className = 'handle';
+  el.append(body, marks, more, handle);
+  attachItemHandlers(el, id);
+  return el;
+}
+function makeImageEl(it){
+  const el = document.createElement('div');
+  el.dataset.id = it.id;
+  const img = document.createElement('img');
+  img.alt = '';
+  img.draggable = false;
+  const handle = document.createElement('div');
+  handle.className = 'handle';
+  el.append(img, handle);
+  attachItemHandlers(el, it.id);
   return el;
 }
 
-function layoutBlock(b){
-  const el = blockEls.get(b.id);
+function layoutItem(it){
+  const el = itemEls.get(it.id);
   if (!el) return;
-  const sel = state.selIds.includes(b.id);
-  el.className = 'block color-' + b.color +
-    (sel ? ' selected' : '') +
-    (sel && state.selIds.length > 1 ? ' multi' : '');
-  el.style.left = (b.x * cell + 2) + 'px';
-  el.style.top = (b.y * cell + 2) + 'px';
-  el.style.width = (b.w * cell - 4) + 'px';
-  el.style.height = (b.h * cell - 4) + 'px';
+  const sel = state.selIds.includes(it.id);
+  const flags = (sel ? ' selected' : '') + (sel && state.selIds.length > 1 ? ' multi' : '');
+  if (it.type === 'image'){
+    el.className = 'item image' + flags;
+    el.style.left = (it.x * scale) + 'px';
+    el.style.top = (it.y * scale) + 'px';
+    el.style.width = (it.w * scale) + 'px';
+    el.style.height = (it.h * scale) + 'px';
+    if (state.currentName) setImgEl(el.querySelector('img'), state.currentName, it.name);
+    return;
+  }
+  el.className = 'item block color-' + it.color + flags;
+  // 2pxの内寄せは旧実装から継承（隣接ブロック同士がくっついて見えないため）
+  el.style.left = (it.x * scale + 2) + 'px';
+  el.style.top = (it.y * scale + 2) + 'px';
+  el.style.width = Math.max(1, it.w * scale - 4) + 'px';
+  el.style.height = Math.max(1, it.h * scale - 4) + 'px';
   // 1行目=タイトル強調、2行目以降は入る分だけ表示（あふれはクリップ）
-  const [t, rest] = splitText(b.text);
+  const [t, rest] = splitText(it.text);
   el.querySelector('.block-title').textContent = t;
   el.querySelector('.block-rest').textContent = rest;
   // マーク（★/フラッグ/×）バッジ
   const marksEl = el.querySelector('.block-marks');
   marksEl.textContent = '';
-  for (const m of b.marks){
+  for (const m of it.marks){
     const s = document.createElement('span');
     if (m === 'star'){ s.className = 'mark-star'; s.textContent = '★'; }
     else if (m === 'flag'){ s.className = 'mark-flag'; s.textContent = '⚑'; }
@@ -1671,67 +1801,84 @@ function layoutBlock(b){
     padEl.style.width = '0px';
     padEl.style.height = '0px';
   }
-  // 画像サムネイル（1枚目）。タイトルと本文（2行目以降）を最優先で確保し、
-  // 残った“空きスペース”に漫画ページ比率(縦長)のサムネを最大サイズで収める。
-  // 長方形（縦長）を維持したまま空きをできる限り使う（cover相当の切り取りはしない）。
-  // 空きが足りない小ブロックでは左下の小さなアイコン表示に退避する（1×1でも破綻しない）
-  const wrapEl = el.querySelector('.block-thumbwrap');
-  const iconEl = el.querySelector('.block-imgicon');
-  const imgs = b.images || [];
-  if (imgs.length && state.currentName){
-    const innerH = b.h * cell - 4 - 6;   // ブロック内側の高さ（padding 3px×2）
-    const innerW = b.w * cell - 4 - 10;  // 同・幅（padding 5px×2）
-    const titleH = el.querySelector('.block-title').offsetHeight;
-    const restEl = el.querySelector('.block-rest');
-    // 本文が占める高さ（要素自身の高さ＝兄弟のサイズに依存しない）。これを避けて空きを埋める
-    const restH = restEl.textContent ? restEl.offsetHeight : 0;
-    const avail = innerH - titleH - restH - 4; // タイトル・本文・余白を除いた空き
-    const minBand = Math.max(20, Math.round(cell * 1.1));
-    if (avail >= minBand && innerW > 8){
-      iconEl.hidden = true;
-      wrapEl.hidden = false;
-      // 空き(innerW × avail)に縦長ページ比率(√2)の長方形を最大サイズで内接させる。
-      // 幅=min(innerW, 高さ×比率)。高さは幅から算出し、必ずavail以内に収まる
-      const arWH = 1 / 1.414;                        // 幅/高さ（--thumb-ar と一致）
-      const tw = Math.min(innerW, Math.round(avail * arWH));
-      const th = Math.round(tw / arWH);
-      wrapEl.style.width = tw + 'px';
-      wrapEl.style.height = th + 'px';
-      setImgEl(el.querySelector('.block-thumb'), state.currentName, imgs[0]);
-      const badge = el.querySelector('.thumb-badge');
-      badge.hidden = imgs.length < 2;
-      if (imgs.length > 1) badge.textContent = '+' + (imgs.length - 1);
-    } else {
-      wrapEl.hidden = true;
-      iconEl.hidden = false;
-      iconEl.textContent = '🖼' + (imgs.length > 1 ? imgs.length : '');
-    }
-  } else {
-    wrapEl.hidden = true;
-    iconEl.hidden = true;
-  }
   // クリップされている時だけ「まだある」表示
-  el.querySelector('.block-more').hidden = !isClipped(b.id);
+  el.querySelector('.block-more').hidden = !isClipped(it.id);
 }
 
 // ブロック内にテキストが収まりきっていないか（要素がDOM上にある前提）
 function isClipped(id){
-  const el = blockEls.get(id);
+  const el = itemEls.get(id);
   if (!el) return false;
   const body = el.querySelector('.block-body');
+  if (!body) return false;
   return body.scrollHeight > body.clientHeight + 1;
 }
 
+// items配列の順（＝重なり順）にDOMを並べ替える
+function restackItems(){
+  for (const it of items()){
+    const el = itemEls.get(it.id);
+    if (el) gridEl.appendChild(el);
+  }
+}
+
+/* ---------- 手書きインク（下地キャンバス） ----------
+ * SVGで描く。座標は盤面座標そのままなので、ズームしても線が滲まず、
+ * 拡大縮小時の再ラスタライズも要らない（viewBoxを差し替えるだけ） */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function strokePath(p){
+  // 点列を二次ベジェで滑らかにつなぐ（中点をアンカーにする定番の方法）
+  if (p.length < 4) return `M ${r1(p[0])} ${r1(p[1])} l 0.01 0.01`;
+  let d = `M ${r1(p[0])} ${r1(p[1])}`;
+  for (let i = 2; i < p.length - 2; i += 2){
+    d += ` Q ${r1(p[i])} ${r1(p[i + 1])} ${r1((p[i] + p[i + 2]) / 2)} ${r1((p[i + 1] + p[i + 3]) / 2)}`;
+  }
+  d += ` L ${r1(p[p.length - 2])} ${r1(p[p.length - 1])}`;
+  return d;
+}
+function makeStrokeEl(s){
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  path.setAttribute('stroke', s.c);
+  path.setAttribute('stroke-width', s.w);
+  path.setAttribute('d', strokePath(s.p));
+  return path;
+}
+function renderInk(){
+  const sz = board().size;
+  inkEl.setAttribute('viewBox', `0 0 ${sz.w} ${sz.h}`);
+  inkEl.setAttribute('width', sz.w * scale);
+  inkEl.setAttribute('height', sz.h * scale);
+  inkEl.textContent = '';
+  for (const s of strokes()) inkEl.appendChild(makeStrokeEl(s));
+}
+// 手書きの実際の広がり（盤面を縮める時に線を切り落とさないための判定に使う）
+function inkBounds(){
+  let maxX = 0, maxY = 0;
+  for (const s of strokes()){
+    const pad = s.w / 2;
+    for (let i = 0; i < s.p.length; i += 2){
+      maxX = Math.max(maxX, s.p[i] + pad);
+      maxY = Math.max(maxY, s.p[i + 1] + pad);
+    }
+  }
+  return { maxX, maxY };
+}
+
 /* ---------- 選択・ツールバー ---------- */
-const selectedBlocks = () => state.selIds.map(getBlock).filter(Boolean);
+const selectedItems = () => state.selIds.map(getItem).filter(Boolean);
+const selectedBlocks = () => selectedItems().filter(isBlockItem);
 const singleSelId = () => state.selIds.length === 1 ? state.selIds[0] : null;
+const singleSelItem = () => getItem(singleSelId());
 function setSelection(ids){
   const prev = state.selIds;
   if (prev.length === ids.length && prev.every((v, i) => v === ids[i])) return;
   state.selIds = [...ids];
   for (const id of new Set([...prev, ...ids])){
-    const b = getBlock(id);
-    if (b) layoutBlock(b);
+    const it = getItem(id);
+    if (it) layoutItem(it);
   }
   disarmDelete();
   updateToolbar();
@@ -1747,13 +1894,41 @@ for (const c of COLOR_IDS){
   btn.addEventListener('click', () => {
     const sel = selectedBlocks();
     if (!sel.length) return;
-    for (const b of sel){ b.color = c; layoutBlock(b); }
+    for (const b of sel){ b.color = c; layoutItem(b); }
     updateToolbar();
     scheduleSave();
   });
   btn.dataset.color = c;
   swatchesEl.appendChild(btn);
 }
+
+/* ---------- 重なり順（自由座標なので前後関係が意味を持つ） ---------- */
+function restack(toFront){
+  const sel = selectedItems();
+  if (!sel.length) return;
+  const ids = new Set(sel.map(i => i.id));
+  const rest = items().filter(i => !ids.has(i.id));
+  const moved = items().filter(i => ids.has(i.id)); // 選択内の相対順は保つ
+  board().items = toFront ? [...rest, ...moved] : [...moved, ...rest];
+  restackItems();
+  scheduleSave();
+}
+frontBtn.addEventListener('click', () => restack(true));
+backZBtn.addEventListener('click', () => restack(false));
+
+/* 画像を元の縦横比へ戻す（自由リサイズで崩れた枠を直す）。
+ * 表示はcontainなので歪みはしないが、枠と画像の比率が違うと余白ができる */
+fitBtn.addEventListener('click', () => {
+  const it = singleSelItem();
+  if (!it || it.type !== 'image' || !state.currentName) return;
+  const ar = naturalAR(state.currentName, it.name);
+  if (!ar) return;
+  it.h = it.w / ar;
+  clampItem(it);
+  layoutItem(it);
+  updateToolbar();
+  scheduleSave();
+});
 
 /* ---------- プリセット色のカスタマイズ ----------
  * ブロックは class="color-<id>" で色を受け取るので、上書き分だけを
@@ -1904,26 +2079,35 @@ function placeToolbar(){
 }
 
 function updateToolbar(){
-  const sel = selectedBlocks();
+  const sel = selectedItems();
+  const blks = sel.filter(isBlockItem);
   // 範囲選択のドラッグ中はまだ出さない（確定時に表示）。
-  // その場エディタ表示中も隠す（エディタ・画像ストリップと重なるため）
-  toolbarEl.classList.toggle('hidden', !sel.length || !!state.marquee || !!state.editing);
+  // その場エディタ表示中・ペンモード中も隠す
+  const show = sel.length && !state.marquee && !state.editing && state.mode === 'select';
+  toolbarEl.classList.toggle('hidden', !show);
+  // モバイルは下部固定ツールバーと道具ドックが重なるので、選択中はドックを隠す
+  dockEl.classList.toggle('hidden', !!show && !finePointer());
   if (!sel.length) return;
   for (const s of swatchesEl.children){
-    s.classList.toggle('active', sel.every(b => b.color === s.dataset.color));
+    s.classList.toggle('active', blks.length > 0 && blks.every(b => b.color === s.dataset.color));
+    s.disabled = !blks.length;
   }
-  starBtn.classList.toggle('active', sel.every(b => b.marks.includes('star')));
-  flagBtn.classList.toggle('active', sel.every(b => b.marks.includes('flag')));
-  crossBtn.classList.toggle('active', sel.every(b => b.marks.includes('cross')));
-  editBtn.disabled = sel.length !== 1; // テキスト編集は単一選択のみ
+  for (const [btn, kind] of [[starBtn, 'star'], [flagBtn, 'flag'], [crossBtn, 'cross']]){
+    btn.classList.toggle('active', blks.length > 0 && blks.every(b => b.marks.includes(kind)));
+    btn.disabled = !blks.length;
+  }
+  editBtn.disabled = !(sel.length === 1 && isBlockItem(sel[0])); // テキスト編集は単一ブロックのみ
+  const oneImg = sel.length === 1 && sel[0].type === 'image';
+  fitBtn.hidden = !oneImg;
+  fitBtn.disabled = !oneImg || !naturalAR(state.currentName, oneImg ? sel[0].name : '');
   if (!delBtn.classList.contains('armed')) delBtn.textContent = delLabel();
   // フローティング時は選択範囲の近傍（上、入らなければ下）に配置。
-  // 画面隅のブロックでもはみ出さないようboardWrap内にクランプ
+  // 画面隅のアイテムでもはみ出さないようboardWrap内にクランプ
   if (toolbarEl.classList.contains('floating')){
     const PAD = 18; // boardWrapの上・左padding
-    const minX = Math.min(...sel.map(b => b.x)) * cell;
-    const minY = Math.min(...sel.map(b => b.y)) * cell;
-    const maxY = Math.max(...sel.map(b => b.y + b.h)) * cell;
+    const minX = Math.min(...sel.map(b => b.x)) * scale;
+    const minY = Math.min(...sel.map(b => b.y)) * scale;
+    const maxY = Math.max(...sel.map(b => b.y + b.h)) * scale;
     const tw = toolbarEl.offsetWidth, th = toolbarEl.offsetHeight;
     const left = clamp(PAD + minX, 4, Math.max(4, boardWrap.clientWidth - tw - 4));
     let top = PAD + minY - th - 10;
@@ -1944,7 +2128,7 @@ function toggleMark(kind){
     const i = b.marks.indexOf(kind);
     if (allHave) b.marks.splice(i, 1);
     else if (i < 0) b.marks.push(kind);
-    layoutBlock(b);
+    layoutItem(b);
   }
   updateToolbar();
   scheduleSave();
@@ -1969,40 +2153,30 @@ function fillTextEls(el, b){
     rEl.textContent = rest;
     el.appendChild(rEl);
   }
-  // 添付画像のサムネイル列（表示専用の原則を維持・ボタンは置かない）
-  if (b.images?.length && state.currentName){
-    const row = document.createElement('div');
-    row.className = 'tt-imgs';
-    for (const name of b.images){
-      const img = document.createElement('img');
-      img.alt = '';
-      img.draggable = false;
-      setImgEl(img, state.currentName, name);
-      row.appendChild(img);
-    }
-    el.appendChild(row);
-  }
 }
 function updateTextPreview(){
-  const busy = state.drag || state.resize || state.placing || state.marquee || state.editing;
-  // PCツールチップ（300ms遅延後・クリップされているか画像がある時）
-  const hb = (!busy && state.hoverReady && state.hoverId) ? getBlock(state.hoverId) : null;
-  if (hb && (isClipped(hb.id) || hb.images?.length)){
+  const busy = state.drag || state.resize || state.placing || state.marquee ||
+               state.editing || state.ink || state.mode !== 'select';
+  // PCツールチップ（300ms遅延後・テキストがクリップされている時）
+  const hoverIt = (!busy && state.hoverReady && state.hoverId) ? getItem(state.hoverId) : null;
+  const hb = isBlockItem(hoverIt) ? hoverIt : null;
+  if (hb && isClipped(hb.id)){
     fillTextEls(tooltipEl, hb);
     tooltipEl.hidden = false;
     // ブロックの上に表示。入らなければ下に
-    const g = board().grid;
-    const left = clamp(hb.x * cell, 0, Math.max(0, g.cols * cell - tooltipEl.offsetWidth - 4));
-    let top = hb.y * cell - tooltipEl.offsetHeight - 9;
-    if (top < 2) top = (hb.y + hb.h) * cell + 9;
+    const sz = board().size;
+    const left = clamp(hb.x * scale, 0, Math.max(0, sz.w * scale - tooltipEl.offsetWidth - 4));
+    let top = hb.y * scale - tooltipEl.offsetHeight - 9;
+    if (top < 2) top = (hb.y + hb.h) * scale + 9;
     tooltipEl.style.left = left + 'px';
     tooltipEl.style.top = top + 'px';
   } else {
     tooltipEl.hidden = true;
   }
   // モバイル全文パネル（タップで全文が読める）。下部ツールバーの上に出す
-  const sb = (!busy && !finePointer()) ? getBlock(singleSelId()) : null;
-  if (sb && (isClipped(sb.id) || sb.images?.length)){
+  const selIt = (!busy && !finePointer()) ? singleSelItem() : null;
+  const sb = isBlockItem(selIt) ? selIt : null;
+  if (sb && isClipped(sb.id)){
     fillTextEls(mobilePreviewEl, sb);
     mobilePreviewEl.style.bottom = (toolbarEl.offsetHeight + 28) + 'px';
     mobilePreviewEl.hidden = false;
@@ -2016,24 +2190,23 @@ function updateTextPreview(){
  * 確定: 外側クリック / Esc / （設定により）Shift+Enter。
  * キャンセル(破棄)は事故のもとなので持たない（Escも確定扱い）。undoは将来課題 */
 function openEditor(id){
-  const b = getBlock(id);
-  if (!b) return;
+  const b = getItem(id);
+  if (!isBlockItem(b)) return;
   commitEditor(); // 別ブロックを編集中なら先に確定
   state.editing = { id };
   editorTa.value = b.text;
   editorTa.className = 'color-' + b.color; // ブロックが膨らんだ印象に色を引き継ぐ
-  const g = board().grid;
-  const width = clamp(Math.max(b.w * cell - 4, 170), 100, g.cols * cell - 8);
-  const left = clamp(b.x * cell + 2, 0, Math.max(0, g.cols * cell - width - 4));
+  const gw = board().size.w * scale;
+  const width = clamp(Math.max(b.w * scale - 4, 170), 100, gw - 8);
+  const left = clamp(b.x * scale + 2, 0, Math.max(0, gw - width - 4));
   editorTa.style.left = left + 'px';
-  editorTa.style.top = (b.y * cell + 2) + 'px';
+  editorTa.style.top = (b.y * scale + 2) + 'px';
   editorTa.style.width = width + 'px';
   editorTa.hidden = false;
   autosizeEditor();
   editorTa.focus();
   editorTa.setSelectionRange(editorTa.value.length, editorTa.value.length);
   editorTa.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  refreshEditorImgs(); // 添付画像ストリップ（Phase 4）
   updateToolbar();
   updateTextPreview();
 }
@@ -2041,22 +2214,19 @@ function openEditor(id){
 function autosizeEditor(){
   const ed = state.editing;
   if (!ed) return;
-  const b = getBlock(ed.id);
-  const minH = b ? b.h * cell - 4 : 40;
+  const b = getItem(ed.id);
+  const minH = b ? b.h * scale - 4 : 40;
   editorTa.style.height = 'auto';
   editorTa.style.height = Math.max(minH, editorTa.scrollHeight + 2) + 'px';
-  positionEditorImgs(); // 画像ストリップはエディタ直下に追従
 }
 function commitEditor(){
   if (!state.editing) return;
-  const b = getBlock(state.editing.id);
+  const b = getItem(state.editing.id);
   state.editing = null;
   editorTa.hidden = true;
-  editorImgsEl.hidden = true;
-  editorImgsEl.textContent = '';
   if (b && b.text !== editorTa.value){
     b.text = editorTa.value;
-    layoutBlock(b);
+    layoutItem(b);
     scheduleSave();
   }
   updateToolbar();
@@ -2064,11 +2234,7 @@ function commitEditor(){
 }
 editorTa.addEventListener('input', autosizeEditor);
 editorTa.addEventListener('pointerdown', e => e.stopPropagation());
-// ファイル選択ダイアログ・Dropboxピッカー表示中のblurでは確定しない
-// （画像追加後に編集を続けられる）
-editorTa.addEventListener('blur', () => {
-  if (!imgPicking && dbxPickerEl.hidden) commitEditor();
-});
+editorTa.addEventListener('blur', commitEditor);
 editorTa.addEventListener('keydown', e => {
   e.stopPropagation();
   if (e.key === 'Escape'){
@@ -2081,15 +2247,16 @@ editorTa.addEventListener('keydown', e => {
     commitEditor();
   }
 });
-// エディタの外側をポインタダウンしたら確定（画像ストリップ・ライトボックスは内側扱い）
+// エディタの外側をポインタダウンしたら確定（ライトボックスは内側扱い）
 document.addEventListener('pointerdown', e => {
-  if (state.editing && e.target !== editorTa &&
-      !editorImgsEl.contains(e.target) && !lightboxEl.contains(e.target)) commitEditor();
+  if (state.editing && e.target !== editorTa && !lightboxEl.contains(e.target)) commitEditor();
 });
 editBtn.addEventListener('click', () => openEditor(singleSelId()));
 
 /* ============================================================
- * Phase 4: 画像添付
+ * 画像（Phase 4 → Phase 5で「ブロックの添付」から「独立オブジェクト」へ）
+ * - 画像はブロックに紐づかず、盤面に自由配置できるアイテム(type:'image')。
+ *   1オブジェクト=1画像で、盤面座標の枠にcontainで収める（歪まない）
  * - 追加時にCanvasで長辺1024px以下へ縮小し、WebPエンコード
  *   （非対応ブラウザはJPEGにフォールバック）。元画像はどこにも保持しない
  * - IndexedDBのimagesストアにBlobでキャッシュし、objectURLで表示
@@ -2141,13 +2308,20 @@ async function encodeImage(file){
     ext = 'jpg';
   }
   if (!blob || !blob.type.startsWith('image/')) throw new Error('画像の変換に失敗しました');
-  return { blob, ext };
+  // w/h は「置いたときの縦横比」を決めるために返す（枠を元画像の比率で作る）
+  return { blob, ext, w: cv.width, h: cv.height };
 }
 
 /* ---- 表示用objectURLキャッシュ ---- */
 const imgURLs = new Map();    // imgKey -> objectURL
 const imgLoading = new Map(); // imgKey -> Promise<string|null>
 const imgFailed = new Set();  // ダウンロード失敗（オフライン・未アップロード等）。復帰時にクリア
+const imgAR = new Map();      // imgKey -> 元画像の縦横比(w/h)。「元の比率に戻す」で使う
+// 読み込み済み画像の縦横比。未読込・取得失敗なら null（ボタンを無効にする）
+function naturalAR(title, name){
+  if (!title || !name) return null;
+  return imgAR.get(imgKey(title, name)) || null;
+}
 
 // キャッシュ優先で画像のobjectURLを得る。なければDropboxから
 // ダウンロード→キャッシュ→表示。取れなければnull（エラーにしない）
@@ -2195,177 +2369,119 @@ function setImgEl(imgEl, title, name){
     else imgEl.classList.add('img-missing');
   });
 }
-// JSONが参照している全画像ファイル名の集合（アップロード整理・GCで使う）
+// 表示できた画像の縦横比を覚えておく（「元の比率に戻す」ボタン用）
+function rememberAR(imgEl){
+  const key = imgEl.dataset.key;
+  if (!key || imgAR.has(key)) return;
+  if (imgEl.naturalWidth && imgEl.naturalHeight){
+    imgAR.set(key, imgEl.naturalWidth / imgEl.naturalHeight);
+    if (!toolbarEl.classList.contains('hidden')) updateToolbar();
+  }
+}
+document.addEventListener('load', e => {
+  if (e.target instanceof HTMLImageElement) rememberAR(e.target);
+}, true); // loadはバブルしないのでキャプチャで拾う
+/* JSONが参照している全画像ファイル名の集合（アップロード整理・GCで使う）。
+ * v5の画像オブジェクトに加えて、まだ変換していない旧形式（ブロック添付の
+ * images/thumb）も見る: 未オープンの作品レコードは旧構造のままなので、
+ * ここを取りこぼすとGCが現役の画像を消してしまう */
 function docImageSet(doc){
   const s = new Set();
-  for (const bd of doc.boards || [])
-    for (const b of bd.blocks || [])
-      for (const n of b.images || []) s.add(n);
+  for (const bd of doc.boards || []){
+    for (const it of (bd.items || bd.blocks || [])){
+      if (!it) continue;
+      if (it.type === 'image' && typeof it.name === 'string' && it.name) s.add(it.name);
+      for (const n of it.images || []) s.add(n);
+      if (typeof it.thumb === 'string' && it.thumb) s.add(it.thumb);
+    }
+  }
   return s;
 }
 
-/* ---- 画像の追加・削除 ---- */
-// 追加はまずIndexedDBに保存して即表示。Dropboxへのアップロードは
-// rec.pendingImgsに積み、既存のJSON同期と同じ遅延・リトライ系統に乗せる
-// （オフラインで追加→オンライン復帰時にsyncDirtyAll経由でアップロードされる）
-async function addImagesToBlock(id, files){
-  const b = getBlock(id);
-  if (!b || !state.currentName) return;
+/* ---- 画像オブジェクトの追加 ----
+ * 追加はまずIndexedDBに保存して即表示。Dropboxへのアップロードは
+ * rec.pendingImgsに積み、既存のJSON同期と同じ遅延・リトライ系統に乗せる
+ * （オフラインで追加→オンライン復帰時にsyncDirtyAll経由でアップロードされる）。
+ * 削除は「アイテムを消す」だけ。実ファイルは同期成功後のGCが片づける */
+const IMG_PLACE_H = 6 * UNIT; // 置いたときの既定の高さ(board-px)。幅は元画像の比率から
+async function addImageObjects(files, at){
+  if (!state.currentName) return [];
   const title = state.currentName;
-  let added = 0;
+  const sz = board().size;
+  let pos = at || viewCenterPoint();
+  const startX = pos.x;
+  const added = [];
   for (const f of files){
     if (!f || !String(f.type).startsWith('image/')) continue;
     try{
-      const { blob, ext } = await encodeImage(f);
+      const { blob, ext, w, h } = await encodeImage(f);
       const name = genImgId() + '.' + ext;
       await idbImgPut(title, name, blob);
       imgURLs.set(imgKey(title, name), URL.createObjectURL(blob));
-      b.images.push(name);
+      imgAR.set(imgKey(title, name), w / h);
+      // 元画像の比率のまま、盤面に収まる大きさで置く
+      let ih = Math.min(IMG_PLACE_H, sz.h), iw = ih * (w / h);
+      if (iw > sz.w){ iw = sz.w; ih = iw * (h / w); }
+      const it = clampItem(newImageItem(r1(pos.x), r1(pos.y), r1(iw), r1(ih), name));
+      items().push(it);
       if (state.rec) (state.rec.pendingImgs ??= []).push(name);
-      added++;
+      const el = makeItemEl(it);
+      itemEls.set(it.id, el);
+      gridEl.appendChild(el);
+      layoutItem(it);
+      added.push(it.id);
+      pos = { x: pos.x + iw + UNIT / 3, y: pos.y }; // 複数枚は右へ並べる
+      if (pos.x > sz.w - UNIT) pos = { x: startX, y: pos.y + ih + UNIT / 3 }; // 端で折り返す
     }catch(e){
       console.warn('[img] 追加に失敗:', e);
     }
   }
-  if (!added) return;
-  layoutBlock(b);
-  refreshEditorImgs();
-  updateTextPreview();
+  if (!added.length) return added;
+  setSelection(added);
+  updateEdgeControls();
   scheduleSave();
+  return added;
 }
-// 添付から外すだけ。実ファイル（Dropbox・キャッシュ）は同期成功後のGCが消す
-function removeImageFromBlock(id, name){
-  const b = getBlock(id);
-  if (!b) return;
-  const i = b.images.indexOf(name);
-  if (i < 0) return;
-  b.images.splice(i, 1);
-  layoutBlock(b);
-  refreshEditorImgs();
-  updateTextPreview();
-  scheduleSave();
+// 追加ボタン経由の既定の置き場所。盤面と表示領域の重なりの中心を返すので、
+// 盤面が画面より小さい/大きいどちらでも「いま見えている所」に置かれる
+function viewCenterPoint(){
+  const gr = gridEl.getBoundingClientRect();
+  const sr = scroller.getBoundingClientRect();
+  const sz = board().size;
+  const x = ((Math.max(gr.left, sr.left) + Math.min(gr.right, sr.right)) / 2 - gr.left) / scale;
+  const y = ((Math.max(gr.top, sr.top) + Math.min(gr.bottom, sr.bottom)) / 2 - gr.top) / scale;
+  return { x: clamp(x, 0, sz.w), y: clamp(y, 0, sz.h) };
 }
 
-/* ---- エディタの画像ストリップ（一覧＋追加・削除・サムネに設定） ---- */
-let imgPicking = false; // ファイル選択ダイアログ表示中（blurによる確定を抑止）
-function positionEditorImgs(){
-  if (editorImgsEl.hidden) return;
-  editorImgsEl.style.left = editorTa.style.left;
-  editorImgsEl.style.top = (parseFloat(editorTa.style.top) + editorTa.offsetHeight + 6) + 'px';
-  editorImgsEl.style.width = editorTa.style.width;
-}
-function refreshEditorImgs(){
-  const b = state.editing ? getBlock(state.editing.id) : null;
-  if (!b){
-    editorImgsEl.hidden = true;
-    editorImgsEl.textContent = '';
-    return;
-  }
-  editorImgsEl.textContent = '';
-  b.images.forEach((name, i) => {
-    const box = document.createElement('div');
-    box.className = 'ed-thumb' + (i === 0 ? ' is-thumb' : '');
-    const img = document.createElement('img');
-    img.alt = '';
-    img.draggable = false;
-    img.title = i === 0 ? 'ブロックに表示されるサムネイル' : '';
-    setImgEl(img, state.currentName, name);
-    img.addEventListener('click', () => openLightbox(name));
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'ed-del';
-    del.textContent = '×';
-    del.title = 'この画像を外す';
-    del.addEventListener('click', () => removeImageFromBlock(b.id, name));
-    box.append(img, del);
-    if (i > 0){
-      const tf = document.createElement('button');
-      tf.type = 'button';
-      tf.className = 'ed-tofront';
-      tf.textContent = '↖';
-      tf.title = 'サムネに設定（先頭に移動）';
-      tf.addEventListener('click', () => {
-        const idx = b.images.indexOf(name);
-        if (idx > 0){
-          b.images.splice(idx, 1);
-          b.images.unshift(name);
-          layoutBlock(b);
-          refreshEditorImgs();
-          scheduleSave();
-        }
-      });
-      box.appendChild(tf);
-    }
-    editorImgsEl.appendChild(box);
-  });
-  const add = document.createElement('button');
-  add.type = 'button';
-  add.className = 'ed-add';
-  add.textContent = '＋';
-  add.title = '画像を追加（モバイルはカメラロール）';
-  add.addEventListener('click', () => {
-    imgPicking = true;
-    imgFileInput.dataset.blockId = b.id;
-    imgFileInput.click();
-  });
-  editorImgsEl.appendChild(add);
-  if (canCloud()){
-    const cloudAdd = document.createElement('button');
-    cloudAdd.type = 'button';
-    cloudAdd.className = 'ed-add';
-    cloudAdd.textContent = '☁';
-    cloudAdd.title = 'Dropboxから選ぶ';
-    cloudAdd.addEventListener('click', () => openDbxPicker(b.id));
-    editorImgsEl.appendChild(cloudAdd);
-  }
-  editorImgsEl.hidden = false;
-  positionEditorImgs();
-}
-// ストリップ内の操作でtextareaのフォーカスを奪わない（blur確定を防ぐ）。
-// pointerdownのpreventDefaultはフォーカス移動だけを止め、clickは発火する
-editorImgsEl.addEventListener('pointerdown', e => {
-  e.preventDefault();
-  e.stopPropagation();
+/* ---- 画像の取り込み口（ファイル選択・貼り付け・D&D・Dropbox） ---- */
+let pendingImgPoint = null; // 次に追加する画像の置き場所（board-px。nullなら画面中央）
+addImgBtn.addEventListener('click', () => {
+  pendingImgPoint = null;
+  imgFileInput.click();
 });
-
 imgFileInput.addEventListener('change', () => {
-  const id = imgFileInput.dataset.blockId;
   const files = [...imgFileInput.files];
+  const at = pendingImgPoint;
   imgFileInput.value = '';
-  imgPicking = false;
-  if (state.editing) editorTa.focus();
-  if (id && files.length) addImagesToBlock(id, files);
-});
-imgFileInput.addEventListener('cancel', () => {
-  imgPicking = false;
-  if (state.editing) editorTa.focus();
-});
-// cancelイベント未対応ブラウザの保険: ウィンドウにフォーカスが戻ったら解除
-window.addEventListener('focus', () => {
-  if (!imgPicking) return;
-  setTimeout(() => {
-    if (imgPicking){
-      imgPicking = false;
-      if (state.editing) editorTa.focus();
-    }
-  }, 400); // changeイベントが先に処理される猶予
+  pendingImgPoint = null;
+  if (files.length) addImageObjects(files, at);
 });
 
-// クリップボード貼り付け（Ctrl+V / 長押しペースト）。スクリーンショット運用向け
-editorTa.addEventListener('paste', e => {
-  if (!state.editing) return;
+// クリップボード貼り付け（Ctrl+V / 長押しペースト）。スクリーンショット運用向け。
+// テキスト編集中は文字の貼り付けを邪魔しない
+document.addEventListener('paste', e => {
+  if (boardView.hidden || state.editing) return;
   const files = [];
   for (const it of e.clipboardData?.items || []){
     if (it.kind === 'file' && it.type.startsWith('image/')) files.push(it.getAsFile());
   }
   if (files.length){
-    e.preventDefault(); // 画像貼り付け時はテキストとして挿入させない
-    addImagesToBlock(state.editing.id, files);
+    e.preventDefault();
+    addImageObjects(files, lastBoardPoint);
   }
 });
 
-// ファイルのドラッグ&ドロップ（ブロックまたはエディタへ・PC向け）。
-// 2系統を1つのパイプラインに合流させる:
+// ファイルのドラッグ&ドロップ（PC向け）。2系統を1つのパイプラインに合流させる:
 //   系統1: ローカルファイルのD&D（e.dataTransfer.files）
 //   系統2: Fileviewer窓からのD&D（text/plainにDropboxパスのJSON・Phase 4.5連携）
 gridEl.addEventListener('dragover', e => {
@@ -2374,16 +2490,14 @@ gridEl.addEventListener('dragover', e => {
   if (types.includes('Files') || types.includes('text/plain')) e.preventDefault();
 });
 gridEl.addEventListener('drop', async e => {
-  // 添付先ブロックの特定（エディタ表示中はその対象、ブロック直下ならそのブロック）
-  let id = state.editing?.id || null;
-  const blkEl = e.target.closest?.('.block');
-  if (blkEl) id = blkEl.dataset.id;
+  // 落とした位置にそのまま置く（ブロックへの添付ではなくなった）
+  const at = boardPoint(e.clientX, e.clientY);
 
-  // 系統1: ローカルファイル（Phase 4本来のD&D）
+  // 系統1: ローカルファイル
   const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
   if (files.length){
     e.preventDefault();
-    if (id) addImagesToBlock(id, files);
+    addImageObjects(files, at);
     return;
   }
 
@@ -2395,14 +2509,13 @@ gridEl.addEventListener('drop', async e => {
   try{ payload = JSON.parse(text); }catch{ return; } // ただの文字列や外部URLは無視
   if (payload?.source !== 'fileviewer' || !payload.dropboxPath) return;
   e.preventDefault();
-  if (!id) return;
   if (!canCloud()){ alert('Fileviewerからの取り込みにはDropbox接続が必要です'); return; }
   try{
     // Dropbox原本を取得 → 既存の画像追加パイプライン（縮小・WebP化・保存・キャッシュ・
     // 遅延アップロード）へ合流。取り込み後は原本と切り離される
     const r = await storage._contentDownload(payload.dropboxPath);
     const blob = new Blob([await r.arrayBuffer()], { type: imgMime(payload.name || payload.dropboxPath) });
-    await addImagesToBlock(id, [blob]);
+    await addImageObjects([blob], at);
   }catch(err){
     console.warn('[fileviewer] 取り込みに失敗:', err);
   }
@@ -2428,12 +2541,12 @@ lightboxEl.addEventListener('click', closeLightbox);
  * 公開APIのgetToken()を使う薄いラッパー（dbxThumbBatch）で直叩きする */
 const DBX_IMG_RE = /\.(jpe?g|png|webp|gif|bmp)$/i;
 let dbxStack = [];     // 現在のフォルダ階層 [{path, name}]
-let dbxPickFor = null; // 追加先ブロックid
+let dbxPickAt = null;  // 取り込んだ画像を置く盤面座標（nullなら画面中央）
 let dbxReqSeq = 0;     // フォルダ遷移と非同期応答の競合防止
 
-function openDbxPicker(blockId){
+function openDbxPicker(at){
   if (!canCloud()) return;
-  dbxPickFor = blockId;
+  dbxPickAt = at || null;
   dbxStack = [{ path: '', name: 'Dropbox' }];
   dbxPickerEl.hidden = false;
   loadDbxFolder();
@@ -2441,10 +2554,10 @@ function openDbxPicker(blockId){
 function closeDbxPicker(){
   dbxPickerEl.hidden = true;
   dbxListEl.textContent = '';
-  dbxPickFor = null;
+  dbxPickAt = null;
   dbxReqSeq++; // 進行中の読み込み結果を破棄
-  if (state.editing) editorTa.focus();
 }
+addDbxBtn.addEventListener('click', () => openDbxPicker(null));
 function setDbxStatus(msg){
   dbxStatusEl.hidden = !msg;
   dbxStatusEl.textContent = msg || '';
@@ -2508,15 +2621,14 @@ function makeDbxRow(entry, icon, onClick){
 }
 // 選択 → ダウンロード → 通常の追加パイプライン（縮小・WebP化・キャッシュ・遅延アップロード）
 async function pickDbxFile(entry, btn){
-  if (!dbxPickFor) return;
   btn.disabled = true;
   setDbxStatus('取り込み中…');
   try{
     const r = await storage._contentDownload(entry.path_lower);
     const blob = new Blob([await r.arrayBuffer()], { type: imgMime(entry.name) });
-    const id = dbxPickFor;
+    const at = dbxPickAt;
     closeDbxPicker();
-    await addImagesToBlock(id, [blob]);
+    await addImageObjects([blob], at);
   }catch(e){
     console.warn('[dbx] 取り込みに失敗:', e);
     btn.disabled = false;
@@ -2583,64 +2695,69 @@ dbxPickerEl.addEventListener('pointerdown', e => {
  * 複数選択時は相対位置を保ったままグループごと複製・配置する */
 let placingEls = [];
 copyBtn.addEventListener('click', () => {
-  const sel = selectedBlocks();
+  const sel = selectedItems();
   if (!sel.length || state.placing) return;
   const minX = Math.min(...sel.map(b => b.x));
   const minY = Math.min(...sel.map(b => b.y));
-  // items: グループ左上を原点とした相対座標(rx, ry)つきの複製
-  const items = sel.map(src => {
-    const proto = JSON.parse(JSON.stringify(src)); // メモ・色・マーク込みで複製
+  // parts: グループ左上を原点とした相対座標(rx, ry)つきの複製
+  const parts = sel.map(src => {
+    const proto = JSON.parse(JSON.stringify(src)); // テキスト・色・マーク・画像参照ごと複製
     proto.id = genId();
     return { proto, rx: src.x - minX, ry: src.y - minY };
   });
   const w = Math.max(...sel.map(b => b.x + b.w)) - minX;
   const h = Math.max(...sel.map(b => b.y + b.h)) - minY;
   deselect();
-  state.placing = { items, w, h, gx: minX, gy: minY, valid: false };
-  for (const it of items){
-    const el = document.createElement('div');
-    el.className = 'block placing-preview color-' + it.proto.color;
-    const pbody = document.createElement('div');
-    pbody.className = 'block-body';
-    const [pt, prest] = splitText(it.proto.text);
-    const t = document.createElement('div');
-    t.className = 'block-title';
-    t.textContent = pt;
-    const pm = document.createElement('div');
-    pm.className = 'block-rest';
-    pm.textContent = prest;
-    pbody.append(t, pm);
-    el.appendChild(pbody);
-    el.style.left = ((minX + it.rx) * cell + 2) + 'px';
-    el.style.top = ((minY + it.ry) * cell + 2) + 'px';
-    el.style.width = (it.proto.w * cell - 4) + 'px';
-    el.style.height = (it.proto.h * cell - 4) + 'px';
+  state.placing = { parts, w, h, bx: minX, by: minY };
+  for (const p of parts){
+    const el = makePlacePreviewEl(p.proto);
+    el.style.left = ((minX + p.rx) * scale) + 'px';
+    el.style.top = ((minY + p.ry) * scale) + 'px';
+    el.style.width = (p.proto.w * scale) + 'px';
+    el.style.height = (p.proto.h * scale) + 'px';
     gridEl.appendChild(el);
     placingEls.push(el);
   }
-  // 元位置は埋まっているので赤
-  showGhosts(items.map(it => ({ x: minX + it.rx, y: minY + it.ry,
-                                w: it.proto.w, h: it.proto.h })), false);
   placeHint.hidden = false;
   updateTextPreview();
 });
+function makePlacePreviewEl(proto){
+  const el = document.createElement('div');
+  if (proto.type === 'image'){
+    el.className = 'item image placing-preview';
+    const img = document.createElement('img');
+    img.alt = ''; img.draggable = false;
+    if (state.currentName) setImgEl(img, state.currentName, proto.name);
+    el.appendChild(img);
+    return el;
+  }
+  el.className = 'item block placing-preview color-' + proto.color;
+  const body = document.createElement('div');
+  body.className = 'block-body';
+  const [pt, prest] = splitText(proto.text);
+  const t = document.createElement('div');
+  t.className = 'block-title';
+  t.textContent = pt;
+  const pm = document.createElement('div');
+  pm.className = 'block-rest';
+  pm.textContent = prest;
+  body.append(t, pm);
+  el.appendChild(body);
+  return el;
+}
 
 function movePlacing(clientX, clientY){
   const p = state.placing;
   if (!p) return;
-  const gr = gridEl.getBoundingClientRect();
-  const g = board().grid;
-  const gx = clamp(Math.round((clientX - gr.left) / cell - p.w / 2), 0, g.cols - p.w);
-  const gy = clamp(Math.round((clientY - gr.top) / cell - p.h / 2), 0, g.rows - p.h);
-  p.gx = gx; p.gy = gy;
-  p.valid = p.items.every(it =>
-    placementValid(gx + it.rx, gy + it.ry, it.proto.w, it.proto.h, null));
-  p.items.forEach((it, i) => {
-    placingEls[i].style.left = ((gx + it.rx) * cell + 2) + 'px';
-    placingEls[i].style.top = ((gy + it.ry) * cell + 2) + 'px';
+  const sz = board().size;
+  const pt = boardPoint(clientX, clientY);
+  // ポインタがグループの中心に来るように置く（自由座標なのでスナップはしない）
+  p.bx = clamp(pt.x - p.w / 2, 0, Math.max(0, sz.w - p.w));
+  p.by = clamp(pt.y - p.h / 2, 0, Math.max(0, sz.h - p.h));
+  p.parts.forEach((part, i) => {
+    placingEls[i].style.left = ((p.bx + part.rx) * scale) + 'px';
+    placingEls[i].style.top = ((p.by + part.ry) * scale) + 'px';
   });
-  showGhosts(p.items.map(it => ({ x: gx + it.rx, y: gy + it.ry,
-                                  w: it.proto.w, h: it.proto.h })), p.valid);
 }
 
 function cancelPlacing(){
@@ -2648,7 +2765,6 @@ function cancelPlacing(){
   state.placing = null;
   for (const el of placingEls) el.remove();
   placingEls = [];
-  hideGhost();
   placeHint.hidden = true;
 }
 
@@ -2657,19 +2773,20 @@ function finishPlacing(e){
   const gr = gridEl.getBoundingClientRect();
   const inside = e.clientX >= gr.left - 8 && e.clientX <= gr.right + 8 &&
                  e.clientY >= gr.top - 8 && e.clientY <= gr.bottom + 8;
-  if (!inside){ cancelPlacing(); return; } // グリッド外タップで中止
+  if (!inside){ cancelPlacing(); return; } // 盤面外タップで中止
   movePlacing(e.clientX, e.clientY);
-  if (!p.valid) return; // 置けない位置 → 赤表示のままモード継続
-  const nbs = p.items.map(it => ({ ...it.proto, x: p.gx + it.rx, y: p.gy + it.ry }));
+  const news = p.parts.map(part => clampItem({
+    ...part.proto, x: r1(p.bx + part.rx), y: r1(p.by + part.ry),
+  }));
   cancelPlacing();
-  for (const nb of nbs){
-    blocks().push(nb);
-    const el = makeBlockEl(nb.id);
-    blockEls.set(nb.id, el);
+  for (const nb of news){
+    items().push(nb);
+    const el = makeItemEl(nb);
+    itemEls.set(nb.id, el);
     gridEl.appendChild(el);
-    layoutBlock(nb);
+    layoutItem(nb);
   }
-  setSelection(nbs.map(nb => nb.id));
+  setSelection(news.map(nb => nb.id));
   updateEdgeControls();
   scheduleSave();
 }
@@ -2686,7 +2803,7 @@ function disarmDelete(){
   delBtn.textContent = delLabel();
 }
 delBtn.addEventListener('click', () => {
-  const sel = selectedBlocks();
+  const sel = selectedItems();
   if (!sel.length) return;
   if (!delBtn.classList.contains('armed')){
     delBtn.classList.add('armed');
@@ -2695,10 +2812,10 @@ delBtn.addEventListener('click', () => {
     return;
   }
   for (const b of sel){
-    const i = blocks().indexOf(b);
-    if (i >= 0) blocks().splice(i, 1);
-    blockEls.get(b.id)?.remove();
-    blockEls.delete(b.id);
+    const i = items().indexOf(b);
+    if (i >= 0) items().splice(i, 1);
+    itemEls.get(b.id)?.remove();
+    itemEls.delete(b.id);
     if (state.hoverId === b.id) state.hoverId = null;
   }
   state.selIds = [];
@@ -2709,64 +2826,38 @@ delBtn.addEventListener('click', () => {
   scheduleSave();
 });
 
-/* ---------- 行・列の追加/削除 ---------- */
-// 増減の単位はROW_STEP/COL_STEP＝目盛り1本ぶん(1マス)。
-// 下限は基準1マス分(BASE_UNIT)＝ブロックを1つ置けるサイズまで。
+/* ---------- 盤面サイズの拡張・縮小 ----------
+ * マス目を廃止したので単位は board-px。BOARD_STEP（＝旧マス1つ分）刻みで、
+ * アイテムや手書きの線を切り落とす縮小はできない */
 function updateEdgeControls(){
-  const g = board().grid;
-  // 削除で消える右端/下端の帯にブロックが載っていなければ削除できる
-  const colFree = !blocks().some(b => b.x + b.w > g.cols - COL_STEP);
-  const rowFree = !blocks().some(b => b.y + b.h > g.rows - ROW_STEP);
-  colPlus.disabled = g.cols >= MAX_COLS;
-  rowPlus.disabled = g.rows >= MAX_ROWS;
-  colMinus.disabled = g.cols - COL_STEP < BASE_UNIT || !colFree;
-  rowMinus.disabled = g.rows - ROW_STEP < BASE_UNIT || !rowFree;
-  colMinus.title = colMinus.disabled && !colFree
-    ? 'ブロックが載っている列は削除できません' : '右端の列を削除';
-  rowMinus.title = rowMinus.disabled && !rowFree
-    ? 'ブロックが載っている行は削除できません' : '下端の行を削除';
+  const sz = board().size;
+  const ink = inkBounds();
+  const wFree = !items().some(b => b.x + b.w > sz.w - BOARD_STEP) && ink.maxX <= sz.w - BOARD_STEP;
+  const hFree = !items().some(b => b.y + b.h > sz.h - BOARD_STEP) && ink.maxY <= sz.h - BOARD_STEP;
+  colPlus.disabled = sz.w >= BOARD_MAX;
+  rowPlus.disabled = sz.h >= BOARD_MAX;
+  colMinus.disabled = sz.w - BOARD_STEP < BOARD_MIN || !wFree;
+  rowMinus.disabled = sz.h - BOARD_STEP < BOARD_MIN || !hFree;
+  colMinus.title = colMinus.disabled && !wFree
+    ? '右側にアイテムか手書きがあるので詰められません' : '盤面の右側を詰める';
+  rowMinus.title = rowMinus.disabled && !hFree
+    ? '下側にアイテムか手書きがあるので詰められません' : '盤面の下側を詰める';
 }
-colPlus.addEventListener('click', () => {
-  board().grid.cols = Math.min(MAX_COLS, board().grid.cols + COL_STEP); renderAll(); scheduleSave();
-});
-rowPlus.addEventListener('click', () => {
-  board().grid.rows = Math.min(MAX_ROWS, board().grid.rows + ROW_STEP); renderAll(); scheduleSave();
-});
-colMinus.addEventListener('click', () => {
-  if (colMinus.disabled) return;
-  board().grid.cols = Math.max(BASE_UNIT, board().grid.cols - COL_STEP); renderAll(); scheduleSave();
-});
-rowMinus.addEventListener('click', () => {
-  if (rowMinus.disabled) return;
-  board().grid.rows = Math.max(BASE_UNIT, board().grid.rows - ROW_STEP); renderAll(); scheduleSave();
-});
-
-/* ---------- ゴースト（配置可否のリアルタイム表示） ----------
- * 複数ブロックの移動・コピーに備えて要素をプールして使い回す */
-const ghostPool = [ghostEl];
-function showGhosts(rects, valid){
-  while (ghostPool.length < rects.length){
-    const g = document.createElement('div');
-    g.className = 'ghost';
-    gridEl.appendChild(g);
-    ghostPool.push(g);
-  }
-  ghostPool.forEach((g, i) => {
-    const r = rects[i];
-    if (!r){ g.hidden = true; return; }
-    g.hidden = false;
-    g.classList.toggle('invalid', !valid);
-    g.style.left = (r.x * cell + 1) + 'px';
-    g.style.top = (r.y * cell + 1) + 'px';
-    g.style.width = (r.w * cell - 2) + 'px';
-    g.style.height = (r.h * cell - 2) + 'px';
-  });
+function resizeBoard(dw, dh){
+  const sz = board().size;
+  sz.w = clamp(sz.w + dw, BOARD_MIN, BOARD_MAX);
+  sz.h = clamp(sz.h + dh, BOARD_MIN, BOARD_MAX);
+  renderAll();
+  scheduleSave();
 }
-function showGhost(x, y, w, h, valid){ showGhosts([{ x, y, w, h }], valid); }
-function hideGhost(){ for (const g of ghostPool) g.hidden = true; }
+colPlus.addEventListener('click', () => resizeBoard(BOARD_STEP, 0));
+rowPlus.addEventListener('click', () => resizeBoard(0, BOARD_STEP));
+colMinus.addEventListener('click', () => { if (!colMinus.disabled) resizeBoard(-BOARD_STEP, 0); });
+rowMinus.addEventListener('click', () => { if (!rowMinus.disabled) resizeBoard(0, -BOARD_STEP); });
 
-/* ---------- ブロックのドラッグ移動 ---------- */
-function onBlockPointerDown(e){
+/* ---------- アイテムのドラッグ移動 ---------- */
+function onItemPointerDown(e){
+  if (state.mode !== 'select') return;
   if (state.drag || state.resize || state.pending || state.placing ||
       state.marquee || state.pendingMarquee) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -2793,11 +2884,11 @@ function onBlockPointerDown(e){
 
 function startDrag(s){
   state.pending = null;
-  const b = getBlock(s.id);
-  const el = blockEls.get(s.id);
+  const b = getItem(s.id);
+  const el = itemEls.get(s.id);
   if (!b || !el) return;
-  // 複数選択中のブロックを掴んだ場合は選択グループ全体を一緒に動かす。
-  // members は掴んだブロック(アンカー)からの相対グリッド座標を持つ
+  // 複数選択中のアイテムを掴んだ場合は選択グループ全体を一緒に動かす。
+  // members は掴んだアイテム(アンカー)からの相対座標を持つ
   const groupIds = (state.selIds.length > 1 && state.selIds.includes(s.id))
     ? [...state.selIds] : [s.id];
   if (groupIds.length === 1) select(s.id);
@@ -2805,53 +2896,43 @@ function startDrag(s){
     id: s.id, pointerId: s.pointerId,
     grabDX: s.grabDX, grabDY: s.grabDY,
     members: groupIds.map(id => {
-      const mb = getBlock(id);
+      const mb = getItem(id);
       return { id, rx: mb.x - b.x, ry: mb.y - b.y, w: mb.w, h: mb.h };
     }),
-    gx: b.x, gy: b.y, valid: true, moved: false
+    bx: b.x, by: b.y, moved: false
   };
   try{ el.setPointerCapture(s.pointerId); }catch(_){}
-  for (const m of state.drag.members) blockEls.get(m.id)?.classList.add('dragging');
+  for (const m of state.drag.members) itemEls.get(m.id)?.classList.add('dragging');
   updateTextPreview(); // ドラッグ中はポップオーバーを隠す
-  showGhosts(state.drag.members.map(m =>
-    ({ x: b.x + m.rx, y: b.y + m.ry, w: m.w, h: m.h })), true);
   if (navigator.vibrate) navigator.vibrate(10);
 }
 
 function dragMove(e){
   const d = state.drag;
-  const b = getBlock(d.id), el = blockEls.get(d.id);
-  if (!b || !el) return;
+  const el = itemEls.get(d.id);
+  if (!el) return;
   const gr = gridEl.getBoundingClientRect();
-  const px = e.clientX - gr.left - d.grabDX;
-  const py = e.clientY - gr.top - d.grabDY;
+  // 掴んだ点との相対を保った、アンカーの盤面座標
+  let bx = (e.clientX - gr.left - d.grabDX) / scale;
+  let by = (e.clientY - gr.top - d.grabDY) / scale;
+  // グループ全員が盤内に収まる範囲にアンカーをクランプ（自由座標・スナップなし）
+  const sz = board().size;
+  let xLo = 0, xHi = sz.w, yLo = 0, yHi = sz.h;
   for (const m of d.members){
-    const mel = blockEls.get(m.id);
-    if (!mel) continue;
-    mel.style.left = (px + m.rx * cell) + 'px';
-    mel.style.top = (py + m.ry * cell) + 'px';
+    xLo = Math.max(xLo, -m.rx);
+    xHi = Math.min(xHi, sz.w - m.rx - m.w);
+    yLo = Math.max(yLo, -m.ry);
+    yHi = Math.min(yHi, sz.h - m.ry - m.h);
   }
-  // グループ全員が盤内に収まる範囲にアンカーの移動先をクランプ
-  const g = board().grid;
-  let gxLo = 0, gxHi = g.cols, gyLo = 0, gyHi = g.rows;
-  for (const m of d.members){
-    gxLo = Math.max(gxLo, -m.rx);
-    gxHi = Math.min(gxHi, g.cols - m.rx - m.w);
-    gyLo = Math.max(gyLo, -m.ry);
-    gyHi = Math.min(gyHi, g.rows - m.ry - m.h);
-  }
-  const gx = clamp(Math.round((px - 2) / cell), gxLo, gxHi);
-  const gy = clamp(Math.round((py - 2) / cell), gyLo, gyHi);
+  d.bx = clamp(bx, xLo, Math.max(xLo, xHi));
+  d.by = clamp(by, yLo, Math.max(yLo, yHi));
   d.moved = true;
-  if (gx !== d.gx || gy !== d.gy || d.valid === null){
-    d.gx = gx; d.gy = gy;
-    const idSet = new Set(d.members.map(m => m.id));
-    d.valid = d.members.every(m =>
-      !blocks().some(o => !idSet.has(o.id) &&
-        rectsOverlap({ x: gx + m.rx, y: gy + m.ry, w: m.w, h: m.h }, o)));
-    showGhosts(d.members.map(m =>
-      ({ x: gx + m.rx, y: gy + m.ry, w: m.w, h: m.h })), d.valid);
-    for (const m of d.members) blockEls.get(m.id)?.classList.toggle('invalid', !d.valid);
+  for (const m of d.members){
+    const mel = itemEls.get(m.id);
+    if (!mel) continue;
+    const isImg = getItem(m.id)?.type === 'image';
+    mel.style.left = ((d.bx + m.rx) * scale + (isImg ? 0 : 2)) + 'px';
+    mel.style.top = ((d.by + m.ry) * scale + (isImg ? 0 : 2)) + 'px';
   }
 }
 
@@ -2859,56 +2940,61 @@ function endDrag(cancelled){
   const d = state.drag;
   if (!d) return;
   state.drag = null;
-  const b = getBlock(d.id), el = blockEls.get(d.id);
-  hideGhost();
+  const b = getItem(d.id), el = itemEls.get(d.id);
   if (!b || !el) return;
   try{ el.releasePointerCapture(d.pointerId); }catch(_){}
-  const apply = !cancelled && d.moved && d.valid && (d.gx !== b.x || d.gy !== b.y);
-  // 確定位置（不可なら元位置）へスナップして戻す
+  const apply = !cancelled && d.moved && (d.bx !== b.x || d.by !== b.y);
   for (const m of d.members){
-    const mb = getBlock(m.id), mel = blockEls.get(m.id);
+    const mb = getItem(m.id), mel = itemEls.get(m.id);
     if (!mb || !mel) continue;
-    mel.classList.remove('dragging', 'invalid');
-    if (apply){ mb.x = d.gx + m.rx; mb.y = d.gy + m.ry; }
-    mel.classList.add('settle');
-    layoutBlock(mb);
-    setTimeout(() => mel.classList.remove('settle'), 160);
+    mel.classList.remove('dragging');
+    if (apply){ mb.x = r1(d.bx + m.rx); mb.y = r1(d.by + m.ry); clampItem(mb); }
+    layoutItem(mb); // 中止時は元位置へ戻す
   }
   if (apply) scheduleSave();
   updateEdgeControls();
+  updateToolbar();
   updateTextPreview();
 }
 
-/* ---------- リサイズ（右下ハンドル） ---------- */
+/* ---------- リサイズ（右下ハンドル・自由サイズ） ----------
+ * 画像は既定で縦横比を保つ（Shiftを押している間は自由変形）。ブロックは常に自由 */
 function onHandlePointerDown(e){
+  if (state.mode !== 'select') return;
   if (state.drag || state.resize) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   e.stopPropagation();
   const id = e.currentTarget.parentElement.dataset.id;
-  const b = getBlock(id);
+  const b = getItem(id);
   if (!b) return;
   commitEditor();
-  state.resize = { id, pointerId: e.pointerId, w: b.w, h: b.h, valid: true, moved: false };
+  state.resize = { id, pointerId: e.pointerId, w: b.w, h: b.h,
+                   ar: b.w / b.h, moved: false };
   try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
   updateTextPreview();
-  showGhost(b.x, b.y, b.w, b.h, true);
 }
 
 function resizeMove(e){
   const r = state.resize;
-  const b = getBlock(r.id), el = blockEls.get(r.id);
+  const b = getItem(r.id), el = itemEls.get(r.id);
   if (!b || !el) return;
-  const gr = gridEl.getBoundingClientRect();
-  const g = board().grid;
-  const w = clamp(Math.round((e.clientX - gr.left - b.x * cell) / cell), 1, g.cols - b.x);
-  const h = clamp(Math.round((e.clientY - gr.top - b.y * cell) / cell), 1, g.rows - b.y);
+  const sz = board().size;
+  const pt = boardPoint(e.clientX, e.clientY);
+  let w = clamp(pt.x - b.x, ITEM_MIN, sz.w - b.x);
+  let h = clamp(pt.y - b.y, ITEM_MIN, sz.h - b.y);
+  if (b.type === 'image' && !e.shiftKey){
+    // 縦横比を保つ: 幅基準で高さを決め、はみ出すなら高さ基準に切り替える
+    h = w / r.ar;
+    if (h > sz.h - b.y || h < ITEM_MIN){
+      h = clamp(h, ITEM_MIN, sz.h - b.y);
+      w = clamp(h * r.ar, ITEM_MIN, sz.w - b.x);
+    }
+  }
   if (w !== r.w || h !== r.h){
     r.w = w; r.h = h; r.moved = true;
-    r.valid = placementValid(b.x, b.y, w, h, b.id);
-    showGhost(b.x, b.y, w, h, r.valid);
-    el.classList.toggle('invalid', !r.valid);
-    el.style.width = (w * cell - 4) + 'px';
-    el.style.height = (h * cell - 4) + 'px';
+    const pad = b.type === 'image' ? 0 : 4;
+    el.style.width = Math.max(1, w * scale - pad) + 'px';
+    el.style.height = Math.max(1, h * scale - pad) + 'px';
   }
 }
 
@@ -2916,30 +3002,28 @@ function endResize(cancelled){
   const r = state.resize;
   if (!r) return;
   state.resize = null;
-  const b = getBlock(r.id), el = blockEls.get(r.id);
-  hideGhost();
+  const b = getItem(r.id), el = itemEls.get(r.id);
   if (!b || !el) return;
-  el.classList.remove('invalid');
-  if (!cancelled && r.moved && r.valid && (r.w !== b.w || r.h !== b.h)){
-    b.w = r.w; b.h = r.h;
+  if (!cancelled && r.moved && (r.w !== b.w || r.h !== b.h)){
+    b.w = r1(r.w); b.h = r1(r.h);
+    clampItem(b);
     scheduleSave();
   }
-  el.classList.add('settle');
-  layoutBlock(b);
-  setTimeout(() => el.classList.remove('settle'), 160);
+  layoutItem(b); // 中止時は元サイズへ戻す
   updateEdgeControls();
+  updateToolbar();
   updateTextPreview();
 }
 
-/* ---------- 範囲選択（空きマスからのドラッグで複数選択） ----------
- * PC: 空きマスから DRAG_START_PX 以上ドラッグで開始
- * モバイル: 空きマス長押しで開始（ブロックの長押しドラッグと同じ流儀。
- *           長押し前の指の移動はスクロールに委ねる） */
+/* ---------- 下地へのポインタ操作 ----------
+ * 選択モード: 範囲選択（PCはドラッグ、モバイルは長押しで開始）
+ * ペン / 消しゴムモード: 下地への手書き（指1本で描き、2本指でスクロール） */
 gridEl.addEventListener('pointerdown', e => {
-  if (e.target !== gridEl) return; // ブロック上はブロック側のハンドラに任せる
+  if (e.target !== gridEl && e.target !== inkEl) return; // アイテム上はアイテム側に任せる
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (state.mode !== 'select'){ inkPointerDown(e); return; }
   if (state.drag || state.resize || state.pending || state.placing ||
       state.marquee || state.pendingMarquee) return;
-  if (e.pointerType === 'mouse' && e.button !== 0) return;
   const s = {
     pointerId: e.pointerId,
     isTouch: e.pointerType !== 'mouse',
@@ -2973,19 +3057,19 @@ function startMarquee(s){
 function marqueeMove(e){
   const m = state.marquee;
   const gr = gridEl.getBoundingClientRect();
-  const g = board().grid;
-  const x1 = clamp(Math.min(m.startX, e.clientX) - gr.left, 0, g.cols * cell);
-  const y1 = clamp(Math.min(m.startY, e.clientY) - gr.top, 0, g.rows * cell);
-  const x2 = clamp(Math.max(m.startX, e.clientX) - gr.left, 0, g.cols * cell);
-  const y2 = clamp(Math.max(m.startY, e.clientY) - gr.top, 0, g.rows * cell);
+  const sz = board().size;
+  const x1 = clamp(Math.min(m.startX, e.clientX) - gr.left, 0, sz.w * scale);
+  const y1 = clamp(Math.min(m.startY, e.clientY) - gr.top, 0, sz.h * scale);
+  const x2 = clamp(Math.max(m.startX, e.clientX) - gr.left, 0, sz.w * scale);
+  const y2 = clamp(Math.max(m.startY, e.clientY) - gr.top, 0, sz.h * scale);
   marqueeEl.style.left = x1 + 'px';
   marqueeEl.style.top = y1 + 'px';
   marqueeEl.style.width = (x2 - x1) + 'px';
   marqueeEl.style.height = (y2 - y1) + 'px';
-  // 矩形にピクセル単位で重なったブロックを選択（ライブ更新）
+  // 矩形に重なったアイテムを選択（ライブ更新）
   const rect = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
-  setSelection(blocks().filter(b => rectsOverlap(rect,
-    { x: b.x * cell, y: b.y * cell, w: b.w * cell, h: b.h * cell }
+  setSelection(items().filter(b => rectsOverlap(rect,
+    { x: b.x * scale, y: b.y * scale, w: b.w * scale, h: b.h * scale }
   )).map(b => b.id));
 }
 
@@ -3000,8 +3084,216 @@ function endMarquee(cancelled){
   updateTextPreview();
 }
 
+/* ============================================================
+ * 下地への手書き（Phase 5・③「マス目をなくした下地を書けるキャンバスに」）
+ * - ストロークは盤面座標の点列で持ち、SVGのpathとして下地に描く
+ *   （アイテムより下のレイヤ。ズームしても線が滲まない）
+ * - 指1本で描き、2本指で盤面スクロール（ペン中はtouch-action:noneのため
+ *   ブラウザのパンが効かないので、2本指のときは自前でスクロールさせる）
+ * - 消しゴみはストローク単位。触れた線をまるごと消す（部分消しは持たない）
+ * ============================================================ */
+const inkPointers = new Map(); // pointerId -> {x, y}（ペン系モードで押している指）
+function setMode(mode){
+  if (state.mode === mode) return;
+  abortInk();
+  state.mode = mode;
+  if (mode !== 'select'){
+    commitEditor();
+    cancelPlacing();
+    deselect();
+  }
+  gridEl.classList.toggle('mode-ink', mode !== 'select');
+  gridEl.classList.toggle('mode-pen', mode === 'pen');
+  gridEl.classList.toggle('mode-eraser', mode === 'eraser');
+  modeSelectBtn.classList.toggle('active', mode === 'select');
+  modePenBtn.classList.toggle('active', mode === 'pen');
+  modeEraseBtn.classList.toggle('active', mode === 'eraser');
+  penBar.hidden = mode !== 'pen';
+  updateToolbar();
+  updateTextPreview();
+}
+modeSelectBtn.addEventListener('click', () => setMode('select'));
+modePenBtn.addEventListener('click', () => setMode(state.mode === 'pen' ? 'select' : 'pen'));
+modeEraseBtn.addEventListener('click', () => setMode(state.mode === 'eraser' ? 'select' : 'eraser'));
+
+/* ペンの色・太さ（端末ローカル設定） */
+function buildPenBar(){
+  const colors = $('penColors');
+  for (const c of PEN_COLORS){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pen-sw';
+    b.style.background = c;
+    b.dataset.color = c;
+    b.title = 'ペンの色';
+    b.addEventListener('click', () => { setSetting('penColor', c); refreshPenBar(); });
+    colors.appendChild(b);
+  }
+  const widths = $('penWidths');
+  for (const w of PEN_WIDTHS){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pen-w';
+    b.dataset.width = w;
+    b.title = 'ペンの太さ';
+    const dot = document.createElement('i');
+    const px = Math.max(3, Math.round(w * 2.2));
+    dot.style.width = px + 'px';
+    dot.style.height = px + 'px';
+    b.appendChild(dot);
+    b.addEventListener('click', () => { setSetting('penWidth', w); refreshPenBar(); });
+    widths.appendChild(b);
+  }
+}
+function refreshPenBar(){
+  const c = penColor(), w = penWidth();
+  for (const b of $('penColors').children) b.classList.toggle('active', b.dataset.color === c);
+  for (const b of $('penWidths').children) b.classList.toggle('active', Number(b.dataset.width) === w);
+  for (const b of $('penWidths').children) b.querySelector('i').style.background = c;
+}
+buildPenBar();
+refreshPenBar();
+
+/* 直前の線を取り消す（手書きは気軽に足すものなので1手だけ戻せると助かる） */
+$('penUndo').addEventListener('click', () => {
+  if (!strokes().length) return;
+  strokes().pop();
+  inkEl.lastElementChild?.remove();
+  updateEdgeControls();
+  scheduleSave();
+});
+
+function inkPointerDown(e){
+  inkPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  // 2本目の指 → 描くのをやめて2本指スクロールへ切り替える
+  if (inkPointers.size >= 2){
+    abortInk();
+    startInkPan();
+    return;
+  }
+  if (state.inkPan) return;
+  try{ gridEl.setPointerCapture(e.pointerId); }catch(_){}
+  if (state.mode === 'pen'){
+    startStroke(e);
+  } else {
+    state.ink = { pointerId: e.pointerId, erasing: true, erased: false };
+    eraseAt(e.clientX, e.clientY);
+  }
+}
+function inkPointerMove(e){
+  if (inkPointers.has(e.pointerId)) inkPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (state.inkPan){ moveInkPan(); return; }
+  const ink = state.ink;
+  if (!ink || e.pointerId !== ink.pointerId) return;
+  if (ink.erasing){ eraseAt(e.clientX, e.clientY); return; }
+  // 取りこぼした中間点も拾って線を滑らかにする
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of (evs.length ? evs : [e])) pushInkPoint(ev.clientX, ev.clientY);
+}
+function inkPointerUp(e){
+  inkPointers.delete(e.pointerId);
+  if (state.inkPan){
+    if (inkPointers.size < 2) state.inkPan = null;
+    return;
+  }
+  const ink = state.ink;
+  if (!ink || e.pointerId !== ink.pointerId) return;
+  try{ gridEl.releasePointerCapture(e.pointerId); }catch(_){}
+  state.ink = null;
+  if (ink.erasing){
+    if (ink.erased){ updateEdgeControls(); scheduleSave(); }
+    return;
+  }
+  commitStroke(ink);
+}
+// 描きかけを捨てる（モード切替・2本指スクロール開始・pointercancel）
+function abortInk(){
+  const ink = state.ink;
+  if (!ink) return;
+  state.ink = null;
+  if (ink.el) ink.el.remove();
+  if (ink.erasing && ink.erased) scheduleSave();
+}
+
+/* ---- ペン ---- */
+function startStroke(e){
+  const p = boardPoint(e.clientX, e.clientY);
+  const s = { c: penColor(), w: penWidth(), p: [r1(p.x), r1(p.y)] };
+  const el = makeStrokeEl(s);
+  inkEl.appendChild(el);
+  state.ink = { pointerId: e.pointerId, erasing: false, stroke: s, el };
+}
+function pushInkPoint(clientX, clientY){
+  const ink = state.ink;
+  if (!ink || !ink.stroke) return;
+  const sz = board().size;
+  const p = boardPoint(clientX, clientY);
+  // 線は盤面の中だけに残す（盤面を縮める判定と食い違わないように）
+  const x = clamp(p.x, 0, sz.w), y = clamp(p.y, 0, sz.h);
+  const pts = ink.stroke.p;
+  const dx = x - pts[pts.length - 2], dy = y - pts[pts.length - 1];
+  if (Math.hypot(dx, dy) * scale < INK_MIN_SEG_PX) return; // 細かすぎる点は捨てる
+  pts.push(r1(x), r1(y));
+  ink.el.setAttribute('d', strokePath(pts));
+}
+function commitStroke(ink){
+  if (!ink || !ink.stroke) return;
+  strokes().push(ink.stroke);
+  updateEdgeControls();
+  scheduleSave();
+}
+
+/* ---- 消しゴム（触れた線をまるごと消す） ---- */
+function pointToSegDist(px, py, x1, y1, x2, y2){
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? clamp(((px - x1) * dx + (py - y1) * dy) / len2, 0, 1) : 0;
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+}
+function eraseAt(clientX, clientY){
+  const p = boardPoint(clientX, clientY);
+  const r = ERASER_R_PX / scale;
+  const all = strokes();
+  let hit = -1;
+  for (let i = all.length - 1; i >= 0 && hit < 0; i--){
+    const s = all[i], reach = r + s.w / 2;
+    for (let j = 0; j + 3 < s.p.length; j += 2){
+      if (pointToSegDist(p.x, p.y, s.p[j], s.p[j + 1], s.p[j + 2], s.p[j + 3]) <= reach){
+        hit = i; break;
+      }
+    }
+    if (hit < 0 && s.p.length === 2 && Math.hypot(p.x - s.p[0], p.y - s.p[1]) <= reach) hit = i;
+  }
+  if (hit < 0) return;
+  all.splice(hit, 1);
+  inkEl.children[hit]?.remove();
+  if (state.ink) state.ink.erased = true;
+  else { updateEdgeControls(); scheduleSave(); }
+}
+
+/* ---- ペンモード中の2本指スクロール ---- */
+function inkPointerMid(){
+  let x = 0, y = 0, n = 0;
+  for (const p of inkPointers.values()){ x += p.x; y += p.y; n++; }
+  return n ? { x: x / n, y: y / n } : null;
+}
+function startInkPan(){
+  const mid = inkPointerMid();
+  if (!mid) return;
+  state.inkPan = { mid, left: scroller.scrollLeft, top: scroller.scrollTop };
+}
+function moveInkPan(){
+  const mid = inkPointerMid();
+  if (!mid || !state.inkPan) return;
+  scroller.scrollLeft = state.inkPan.left - (mid.x - state.inkPan.mid.x);
+  scroller.scrollTop  = state.inkPan.top  - (mid.y - state.inkPan.mid.y);
+}
+
 /* ---------- ポインタの共通ハンドラ ---------- */
+let lastBoardPoint = null; // 直近のポインタ位置（board-px）。貼り付け位置に使う
 window.addEventListener('pointermove', e => {
+  if (!boardView.hidden) lastBoardPoint = boardPoint(e.clientX, e.clientY);
+  if (state.mode !== 'select'){ inkPointerMove(e); return; }
   if (state.placing){ movePlacing(e.clientX, e.clientY); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ resizeMove(e); return; }
   if (state.drag && e.pointerId === state.drag.pointerId){ dragMove(e); return; }
@@ -3032,6 +3324,7 @@ window.addEventListener('pointermove', e => {
 });
 
 window.addEventListener('pointerup', e => {
+  if (state.mode !== 'select'){ inkPointerUp(e); return; }
   if (state.placing){ finishPlacing(e); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ endResize(false); return; }
   if (state.drag && e.pointerId === state.drag.pointerId){ endDrag(false); return; }
@@ -3046,14 +3339,25 @@ window.addEventListener('pointerup', e => {
   if (s && e.pointerId === s.pointerId){
     clearTimeout(s.lpTimer);
     state.pending = null;
-    // ドラッグに至らないタップ/クリック → 選択。選択済みならその場エディタを開く
+    // ドラッグに至らないタップ/クリック → 選択。選択済みなら
+    // ブロックはその場エディタ、画像は拡大表示を開く
     const wasSelected = singleSelId() === s.id;
     select(s.id);
-    if (wasSelected) openEditor(s.id);
+    if (wasSelected){
+      const it = getItem(s.id);
+      if (it && it.type === 'image') openLightbox(it.name);
+      else openEditor(s.id);
+    }
   }
 });
 
 window.addEventListener('pointercancel', e => {
+  if (state.mode !== 'select'){
+    inkPointers.delete(e.pointerId);
+    if (state.ink && state.ink.pointerId === e.pointerId) abortInk();
+    if (inkPointers.size < 2) state.inkPan = null;
+    return;
+  }
   if (state.resize && e.pointerId === state.resize.pointerId) endResize(true);
   if (state.drag && e.pointerId === state.drag.pointerId) endDrag(true);
   if (state.marquee && e.pointerId === state.marquee.pointerId) endMarquee(true);
@@ -3069,25 +3373,27 @@ window.addEventListener('pointercancel', e => {
   }
 });
 
-// ドラッグ/リサイズ/コピー配置/範囲選択の確定後にネイティブスクロールが割り込むのを防ぐ
+// ドラッグ/リサイズ/コピー配置/範囲選択/手書きの確定後に
+// ネイティブスクロールが割り込むのを防ぐ
 window.addEventListener('touchmove', e => {
-  if (state.drag || state.resize || state.placing || state.marquee) e.preventDefault();
+  if (state.drag || state.resize || state.placing || state.marquee || state.ink) e.preventDefault();
 }, { passive: false });
 
 // タッチ長押しのコンテキストメニューを抑止
 boardWrap.addEventListener('contextmenu', e => e.preventDefault());
 
-/* ---------- 空きマスのダブルクリック/ダブルタップで新規作成 ---------- */
+/* ---------- 下地のダブルクリック/ダブルタップでメモブロックを新規作成 ---------- */
 let lastTap = null;
 gridEl.addEventListener('pointerup', e => {
-  if (e.target !== gridEl) return;
+  if (e.target !== gridEl && e.target !== inkEl) return;
+  if (state.mode !== 'select') return; // ペン系モードは筆記が主役
   // 範囲選択直後のpointerupはタップ扱いにしない（windowハンドラが後で終了処理する）
   if (state.drag || state.resize || state.placing || state.marquee) return;
   const now = performance.now();
   if (lastTap && now - lastTap.t < TAP_DOUBLE_MS &&
       Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < TAP_DOUBLE_PX){
     lastTap = null;
-    createBlockAt(e.clientX, e.clientY);
+    createBlockAt(boardPoint(e.clientX, e.clientY));
   } else {
     lastTap = { t: now, x: e.clientX, y: e.clientY };
     commitEditor();
@@ -3095,31 +3401,24 @@ gridEl.addEventListener('pointerup', e => {
   }
 });
 
-function createBlockAt(clientX, clientY){
-  const gr = gridEl.getBoundingClientRect();
-  const g = board().grid;
-  // 既定サイズは基準の2×2マス。マス目が細かいので、置いた位置が枠に収まるよう
-  // 右端・下端でクランプする
-  const w = BASE_UNIT, h = BASE_UNIT;
-  const gx = clamp(Math.floor((clientX - gr.left) / cell), 0, g.cols - w);
-  const gy = clamp(Math.floor((clientY - gr.top) / cell), 0, g.rows - h);
-  if (!placementValid(gx, gy, w, h, null)){
-    // 置けない位置は赤ゴーストを一瞬見せて知らせる
-    showGhost(gx, gy, w, h, false);
-    setTimeout(hideGhost, 350);
-    return;
-  }
-  const b = newBlock(gx, gy);
-  blocks().push(b);
-  const el = makeBlockEl(b.id);
-  blockEls.set(b.id, el);
+// 自由座標なので「置けない場所」は無い（重なりは許容）。盤面の内側にだけ収める
+function createBlockAt(at){
+  const p = at || viewCenterPoint();
+  const b = clampItem(newBlock(r1(p.x), r1(p.y)));
+  items().push(b);
+  const el = makeItemEl(b);
+  itemEls.set(b.id, el);
   gridEl.appendChild(el);
-  layoutBlock(b);
+  layoutItem(b);
   select(b.id);
   updateEdgeControls();
   scheduleSave();
   openEditor(b.id); // 生成直後にその場エディタを開く
 }
+addBlockBtn.addEventListener('click', () => {
+  setMode('select');
+  createBlockAt(null);
+});
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
@@ -3128,6 +3427,7 @@ document.addEventListener('keydown', e => {
   else if (!settingsModal.hidden) settingsModal.hidden = true;
   else if (state.editing) commitEditor(); // Escも確定扱い
   else if (state.placing) cancelPlacing();
+  else if (state.mode !== 'select') setMode('select');
   else deselect();
 });
 
@@ -3136,8 +3436,10 @@ settingsBtn.addEventListener('click', () => {
   for (const r of settingsModal.querySelectorAll('input[name="confirmKey"]')){
     r.checked = r.value === getSetting('editorConfirmKey');
   }
+  for (const r of settingsModal.querySelectorAll('input[name="paperStyle"]')){
+    r.checked = r.value === paperStyle();
+  }
   updateFontScaleUI();
-  updateThumbSizeUI();
   refreshPaletteEditor();
   settingsModal.hidden = false;
 });
@@ -3147,6 +3449,10 @@ settingsModal.addEventListener('pointerdown', e => {
 });
 settingsModal.addEventListener('change', e => {
   if (e.target.name === 'confirmKey') setSetting('editorConfirmKey', e.target.value);
+  else if (e.target.name === 'paperStyle'){
+    setSetting('paperStyle', e.target.value);
+    if (!boardView.hidden) applyPaperStyle();
+  }
 });
 
 /* 文字サイズスライダー（50〜200%・5%刻み）。ドラッグ中も即時反映して
@@ -3166,36 +3472,10 @@ function applyFontScale(n){
 fontScaleRange.addEventListener('input', () => applyFontScale(fontScaleRange.value / 100));
 $('fontScaleReset').addEventListener('click', () => applyFontScale(1));
 
-/* 画像サムネの大きさスライダー（px指定）。ドラッグ中も即時反映。
- * エディタの画像ストリップ(--ed-thumb)とホバー時ツールチップ(--tt-thumb)を個別に調整する */
-const edThumbRange = $('edThumbRange'), edThumbValEl = $('edThumbVal');
-const ttThumbRange = $('ttThumbRange'), ttThumbValEl = $('ttThumbVal');
-function updateThumbSizeUI(){
-  const ed = edThumbSize(), tt = ttThumbSize();
-  edThumbRange.value = ed; edThumbValEl.textContent = ed + 'px';
-  ttThumbRange.value = tt; ttThumbValEl.textContent = tt + 'px';
-}
-function applyEdThumb(px){
-  setSetting('edThumbSize', Math.max(ED_THUMB_MIN, Math.min(ED_THUMB_MAX, Math.round(px))));
-  applyThumbSizes();
-  updateThumbSizeUI();
-  positionEditorImgs(); // ストリップ寸法が変わるのでエディタ直下の位置を追従
-}
-function applyTtThumb(px){
-  setSetting('ttThumbSize', Math.max(TT_THUMB_MIN, Math.min(TT_THUMB_MAX, Math.round(px))));
-  applyThumbSizes();
-  updateThumbSizeUI();
-  updateTextPreview(); // 表示中ツールチップの位置を再計算
-}
-edThumbRange.addEventListener('input', () => applyEdThumb(edThumbRange.value));
-ttThumbRange.addEventListener('input', () => applyTtThumb(ttThumbRange.value));
-$('edThumbReset').addEventListener('click', () => applyEdThumb(ED_THUMB_DEFAULT));
-$('ttThumbReset').addEventListener('click', () => applyTtThumb(TT_THUMB_DEFAULT));
-
 /* ---------- 表示倍率（ズーム） ----------
  * PCでは画面幅フィット(=100%)だとマスが小さく端に寄りがちなので、
  * 倍率を上げて大きく表示できるようにする。倍率は端末ローカルに保存。
- * cell(1マスのpx)に倍率を掛けるだけなので、D&D等の座標計算はそのまま整合する。 */
+ * scale(board-pxあたりの実px)に倍率を掛けるだけなので、D&D等の座標計算はそのまま整合する。 */
 function updateZoomUI(){
   zoomLabelBtn.textContent = Math.round(zoom * 100) + '%';
   zoomOutBtn.disabled = zoom <= ZOOM_STEPS[0] + 1e-6;
@@ -3850,6 +4130,7 @@ async function openTitle(name){
   state.rec = rec;
   state.doc = rec.doc;
   state.selIds = [];
+  setMode('select'); // 作品を開くときは常に選択モードから
   titleView.hidden = true;
   boardView.hidden = false;
   boardTitleEl.textContent = name;
@@ -3888,6 +4169,7 @@ async function showTitleView(){
   // ボードを離れる前に編集状態を閉じて保存・同期をフラッシュ
   commitEditor();
   cancelPlacing();
+  setMode('select');
   deselect();
   if (saveTimer) await flushSave();
   const name = state.currentName;
