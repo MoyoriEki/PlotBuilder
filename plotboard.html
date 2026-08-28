@@ -290,7 +290,16 @@ header h1{
   border: 1px solid #c4ccd3; border-radius: 8px; background: #fff;
   color: #55606a; padding: 6px 12px; font-size: 12.5px; cursor: pointer;
 }
-.hint{ font-size: 11.5px; color: #8a939b; }
+/* 操作ヒント。余った幅にだけ入る（flex-basis:0）ので、作品名を押し縮めない */
+.hint{
+  font-size: 11.5px;
+  color: #8a939b;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 @media (max-width: 680px){ .hint{ display: none; } }
 
 #saveIndicator{
@@ -488,37 +497,61 @@ header h1{
   box-shadow: 0 8px 24px rgba(0,0,0,.28);
 }
 
-/* ---- 行・列の追加/削除（端のホバーで現れる控えめなUI） ---- */
-.edge-ctl{
+/* ---- 盤面サイズのグリップ（紙の端をつまんで広げる/縮める） ----
+ * 盤面の外側に沿って置く帯。掴む面積を大きく取りつつ、盤面の上には
+ * かからないので、端ぎりぎりへの手書きやアイテム配置を邪魔しない */
+.board-grip{
   position: absolute;
-  display: flex;
-  gap: 6px;
   z-index: 8;
-  opacity: .55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  opacity: .6;
   transition: opacity .15s;
 }
-#colCtl{ flex-direction: column; }
-#rowCtl{ flex-direction: row; }
+.board-grip::after{        /* つまみ本体（スクロールバーのつまみのような見え方） */
+  content: '';
+  display: block;
+  background: #b8c2cb;
+  border-radius: 999px;
+  transition: background .12s, transform .12s;
+}
 @media (hover: hover){
-  .edge-ctl{ opacity: .18; }
-  #boardWrap:hover .edge-ctl{ opacity: .85; }
-  .edge-ctl:hover{ opacity: 1; }
+  .board-grip{ opacity: .28; }
+  #boardWrap:hover .board-grip{ opacity: .85; }
+  .board-grip:hover, .board-grip.active{ opacity: 1; }
 }
-.edge-ctl button{
-  width: 30px; height: 30px;
-  border-radius: 50%;
-  border: 1px solid #b8c2cb;
-  background: #fff;
-  color: #55606a;
-  font-size: 17px;
+.grip-w{ cursor: ew-resize; }
+.grip-w::after{ width: 4px; height: 44px; }
+.grip-h{ cursor: ns-resize; }
+.grip-h::after{ width: 44px; height: 4px; }
+.grip-wh{ cursor: nwse-resize; }
+.grip-wh::after{ width: 11px; height: 11px; border-radius: 3px; }
+.board-grip:hover::after, .board-grip.active::after{
+  background: var(--accent);
+  transform: scale(1.2);
+}
+.board-grip:focus{ outline: none; }
+.board-grip:focus-visible::after{
+  background: var(--accent);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent);
+}
+/* ドラッグ中に出る寸法表示 */
+#gripLabel{
+  position: absolute;
+  z-index: 9;
+  background: #333a40;
+  color: #fff;
+  font-size: 11.5px;
   line-height: 1;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  padding: 6px 9px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
 }
-.edge-ctl button:disabled{
-  opacity: .3;
-  cursor: default;
-}
+#gripLabel[hidden]{ display: none; }
 
 /* ---- 表示倍率（ズーム）ピル ---- */
 #zoomCtl{
@@ -922,7 +955,7 @@ img.img-missing{ opacity: .35; }
 <header>
   <button id="backBtn" type="button" title="作品一覧へ戻る">←</button>
   <h1 id="boardTitle">無題</h1>
-  <span class="hint">下地をダブルクリックでメモ追加、ドラッグで範囲選択。モバイルは長押しでドラッグ / 範囲選択。左下の道具でペン書き・画像追加</span>
+  <span class="hint">ダブルクリックでメモ追加 / ドラッグで範囲選択 / 盤面の端をドラッグでサイズ変更 / 左下の道具でペン・画像</span>
   <span id="saveIndicator"><span class="dot"></span><span id="saveText">保存済み</span></span>
   <button id="syncBtn" type="button" title="今すぐ同期" hidden>⟳</button>
   <button id="settingsBtn" type="button" title="設定">⚙</button>
@@ -937,14 +970,20 @@ img.img-missing{ opacity: .35; }
       <textarea id="editorTa" hidden autocomplete="off"
                 placeholder="1行目がタイトル&#10;2行目からメモ…"></textarea>
     </div>
-    <div id="colCtl" class="edge-ctl">
-      <button id="colPlus"  title="盤面を右へ広げる" aria-label="盤面を右へ広げる">＋</button>
-      <button id="colMinus" title="盤面の右側を詰める" aria-label="盤面の右側を詰める">−</button>
-    </div>
-    <div id="rowCtl" class="edge-ctl">
-      <button id="rowPlus"  title="盤面を下へ広げる" aria-label="盤面を下へ広げる">＋</button>
-      <button id="rowMinus" title="盤面の下側を詰める" aria-label="盤面の下側を詰める">−</button>
-    </div>
+    <!-- 盤面の端をつまんでドラッグするとサイズが変わる（矢印キーでも動かせる） -->
+    <div id="gripW" class="board-grip grip-w" tabindex="0"
+         role="separator" aria-orientation="vertical"
+         aria-label="盤面の右端。ドラッグまたは左右キーで幅を変える"
+         title="ドラッグして盤面の幅を変える"></div>
+    <div id="gripH" class="board-grip grip-h" tabindex="0"
+         role="separator" aria-orientation="horizontal"
+         aria-label="盤面の下端。ドラッグまたは上下キーで高さを変える"
+         title="ドラッグして盤面の高さを変える"></div>
+    <div id="gripWH" class="board-grip grip-wh" tabindex="0"
+         role="separator"
+         aria-label="盤面の右下。ドラッグまたは矢印キーで大きさを変える"
+         title="ドラッグして盤面の大きさを変える"></div>
+    <div id="gripLabel" hidden></div>
   </div>
 </div>
 <div id="zoomCtl" title="表示倍率">
@@ -1406,6 +1445,7 @@ const state = {
   marquee: null,   // 範囲選択（ラバーバンド）中
   drag: null,      // 移動ドラッグ中（複数選択時はグループごと）
   resize: null,    // リサイズ中
+  boardResize: null, // 盤面サイズのグリップをドラッグ中
   editing: null,   // その場エディタで編集中 { id }
   placing: null,   // コピーの配置先選択中 { items, bx, by }
   ink: null,       // 手書きストローク描画中
@@ -1446,8 +1486,7 @@ const backBtn = $('backBtn'), syncBtn = $('syncBtn'), newTitleBtn = $('newTitleB
 const nameModal = $('nameModal'), nameInput = $('nameInput'), nameError = $('nameError');
 const conflictModal = $('conflictModal');
 const saveIndicator = $('saveIndicator'), saveText = $('saveText');
-const colPlus = $('colPlus'), colMinus = $('colMinus');
-const rowPlus = $('rowPlus'), rowMinus = $('rowMinus');
+const gripW = $('gripW'), gripH = $('gripH'), gripWH = $('gripWH'), gripLabel = $('gripLabel');
 const zoomCtl = $('zoomCtl'), zoomOutBtn = $('zoomOut'), zoomInBtn = $('zoomIn'), zoomLabelBtn = $('zoomLabel');
 const itemEls = new Map(); // id -> element
 
@@ -1666,15 +1705,7 @@ function renderAll(){
     layoutItem(it);
   }
 
-  // 列コントロールは右端の垂直中央、行コントロールは下端の左寄せ
-  // （下端中央だと画面下部固定ツールバーと重なるため左寄せにする）
-  const ctlH = 30 * 2 + 6;
-  $('colCtl').style.top  = (18 + Math.max(0, gh / 2 - ctlH / 2)) + 'px';
-  $('colCtl').style.right = '14px';
-  $('rowCtl').style.left = '18px';
-  $('rowCtl').style.bottom = '14px';
-
-  updateEdgeControls();
+  positionGrips();
   updateToolbar();
   updateTextPreview();
 }
@@ -2438,7 +2469,6 @@ async function addImageObjects(files, at){
   }
   if (!added.length) return added;
   setSelection(added);
-  updateEdgeControls();
   scheduleSave();
   return added;
 }
@@ -2787,7 +2817,6 @@ function finishPlacing(e){
     layoutItem(nb);
   }
   setSelection(news.map(nb => nb.id));
-  updateEdgeControls();
   scheduleSave();
 }
 
@@ -2821,39 +2850,139 @@ delBtn.addEventListener('click', () => {
   state.selIds = [];
   disarmDelete();
   updateToolbar();
-  updateEdgeControls();
   updateTextPreview();
   scheduleSave();
 });
 
-/* ---------- 盤面サイズの拡張・縮小 ----------
- * マス目を廃止したので単位は board-px。BOARD_STEP（＝旧マス1つ分）刻みで、
- * アイテムや手書きの線を切り落とす縮小はできない */
-function updateEdgeControls(){
+/* ---------- 盤面サイズ（端のグリップをドラッグして広げる/縮める） ----------
+ * マス目を廃止した以上、盤面サイズも刻みではなく自由に決められた方が素直。
+ * 右端=幅、下端=高さ、右下=両方。アイテムや手書きの線を切り落とす縮小はできない。
+ * ドラッグ中は scale（画面幅フィット倍率）を据え置き、指の動きと紙の端が
+ * 1:1で付いてくるようにする（毎フレーム再フィットすると端が逃げて掴めない）。
+ * 離した時に renderAll で改めてフィットさせる */
+const GRIP_W = 18; // グリップ帯の太さ(px)
+
+function positionGrips(){
   const sz = board().size;
-  const ink = inkBounds();
-  const wFree = !items().some(b => b.x + b.w > sz.w - BOARD_STEP) && ink.maxX <= sz.w - BOARD_STEP;
-  const hFree = !items().some(b => b.y + b.h > sz.h - BOARD_STEP) && ink.maxY <= sz.h - BOARD_STEP;
-  colPlus.disabled = sz.w >= BOARD_MAX;
-  rowPlus.disabled = sz.h >= BOARD_MAX;
-  colMinus.disabled = sz.w - BOARD_STEP < BOARD_MIN || !wFree;
-  rowMinus.disabled = sz.h - BOARD_STEP < BOARD_MIN || !hFree;
-  colMinus.title = colMinus.disabled && !wFree
-    ? '右側にアイテムか手書きがあるので詰められません' : '盤面の右側を詰める';
-  rowMinus.title = rowMinus.disabled && !hFree
-    ? '下側にアイテムか手書きがあるので詰められません' : '盤面の下側を詰める';
+  const gw = sz.w * scale, gh = sz.h * scale;
+  const PAD = 18; // boardWrapの上・左padding
+  gripW.style.left = (PAD + gw) + 'px';
+  gripW.style.top = PAD + 'px';
+  gripW.style.width = GRIP_W + 'px';
+  gripW.style.height = gh + 'px';
+  gripH.style.left = PAD + 'px';
+  gripH.style.top = (PAD + gh) + 'px';
+  gripH.style.width = gw + 'px';
+  gripH.style.height = GRIP_W + 'px';
+  gripWH.style.left = (PAD + gw) + 'px';
+  gripWH.style.top = (PAD + gh) + 'px';
+  gripWH.style.width = GRIP_W + 'px';
+  gripWH.style.height = GRIP_W + 'px';
 }
-function resizeBoard(dw, dh){
+
+// 縮小の下限＝いま置いてあるものが収まる大きさ（アイテムと手書きの右端・下端）
+function contentExtent(){
+  const ink = inkBounds();
+  let w = BOARD_MIN, h = BOARD_MIN;
+  for (const it of items()){
+    w = Math.max(w, it.x + it.w);
+    h = Math.max(h, it.y + it.h);
+  }
+  return { w: Math.ceil(Math.max(w, ink.maxX)), h: Math.ceil(Math.max(h, ink.maxY)) };
+}
+
+// 盤面サイズを即時反映（再描画はしない＝ドラッグ中に使う軽い経路）
+function applyBoardSize(w, h){
   const sz = board().size;
-  sz.w = clamp(sz.w + dw, BOARD_MIN, BOARD_MAX);
-  sz.h = clamp(sz.h + dh, BOARD_MIN, BOARD_MAX);
+  sz.w = w; sz.h = h;
+  const gw = w * scale, gh = h * scale;
+  gridEl.style.width = gw + 'px';
+  gridEl.style.height = gh + 'px';
+  inkEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  inkEl.setAttribute('width', gw);
+  inkEl.setAttribute('height', gh);
+  positionGrips();
+}
+
+function showGripLabel(clientX, clientY){
+  const sz = board().size;
+  const wr = boardWrap.getBoundingClientRect();
+  gripLabel.textContent = `${sz.w} × ${sz.h}`;
+  gripLabel.style.left = (clientX - wr.left + 14) + 'px';
+  gripLabel.style.top = (clientY - wr.top + 14) + 'px';
+  gripLabel.hidden = false;
+}
+
+function startBoardResize(e, axis){
+  if (state.boardResize || state.drag || state.resize || state.ink || state.placing) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  e.preventDefault();   // グリップ上のテキスト選択・スクロール開始を止める
+  e.stopPropagation();
+  commitEditor();
+  const sz = board().size;
+  state.boardResize = {
+    pointerId: e.pointerId, axis, el: e.currentTarget,
+    startX: e.clientX, startY: e.clientY,
+    w0: sz.w, h0: sz.h, min: contentExtent(),
+  };
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
+  e.currentTarget.classList.add('active');
+  showGripLabel(e.clientX, e.clientY);
+}
+
+function boardResizeMove(e){
+  const r = state.boardResize;
+  const sz = board().size;
+  let w = sz.w, h = sz.h;
+  if (r.axis.includes('w'))
+    w = clamp(Math.round(r.w0 + (e.clientX - r.startX) / scale), r.min.w, BOARD_MAX);
+  if (r.axis.includes('h'))
+    h = clamp(Math.round(r.h0 + (e.clientY - r.startY) / scale), r.min.h, BOARD_MAX);
+  if (w !== sz.w || h !== sz.h) applyBoardSize(w, h);
+  showGripLabel(e.clientX, e.clientY);
+}
+
+function endBoardResize(cancelled){
+  const r = state.boardResize;
+  if (!r) return;
+  state.boardResize = null;
+  try{ r.el.releasePointerCapture(r.pointerId); }catch(_){}
+  r.el.classList.remove('active');
+  gripLabel.hidden = true;
+  if (cancelled) applyBoardSize(r.w0, r.h0);
+  const changed = board().size.w !== r.w0 || board().size.h !== r.h0;
+  renderAll(); // 据え置いていた画面幅フィット倍率をここで計算し直す
+  if (changed) scheduleSave();
+}
+
+// 矢印キーでも動かせるようにしておく（±ボタンが担っていたキーボード操作の受け皿）
+function gripKey(e, axis){
+  const step = e.shiftKey ? BOARD_STEP * 4 : BOARD_STEP;
+  let dw = 0, dh = 0;
+  if (axis.includes('w')){
+    if (e.key === 'ArrowRight') dw = step;
+    else if (e.key === 'ArrowLeft') dw = -step;
+  }
+  if (axis.includes('h')){
+    if (e.key === 'ArrowDown') dh = step;
+    else if (e.key === 'ArrowUp') dh = -step;
+  }
+  if (!dw && !dh) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const sz = board().size, min = contentExtent();
+  const w = clamp(sz.w + dw, min.w, BOARD_MAX);
+  const h = clamp(sz.h + dh, min.h, BOARD_MAX);
+  if (w === sz.w && h === sz.h) return;
+  applyBoardSize(w, h);
   renderAll();
   scheduleSave();
 }
-colPlus.addEventListener('click', () => resizeBoard(BOARD_STEP, 0));
-rowPlus.addEventListener('click', () => resizeBoard(0, BOARD_STEP));
-colMinus.addEventListener('click', () => { if (!colMinus.disabled) resizeBoard(-BOARD_STEP, 0); });
-rowMinus.addEventListener('click', () => { if (!rowMinus.disabled) resizeBoard(0, -BOARD_STEP); });
+
+for (const [el, axis] of [[gripW, 'w'], [gripH, 'h'], [gripWH, 'wh']]){
+  el.addEventListener('pointerdown', e => startBoardResize(e, axis));
+  el.addEventListener('keydown', e => gripKey(e, axis));
+}
 
 /* ---------- アイテムのドラッグ移動 ---------- */
 function onItemPointerDown(e){
@@ -2952,7 +3081,6 @@ function endDrag(cancelled){
     layoutItem(mb); // 中止時は元位置へ戻す
   }
   if (apply) scheduleSave();
-  updateEdgeControls();
   updateToolbar();
   updateTextPreview();
 }
@@ -3010,7 +3138,6 @@ function endResize(cancelled){
     scheduleSave();
   }
   layoutItem(b); // 中止時は元サイズへ戻す
-  updateEdgeControls();
   updateToolbar();
   updateTextPreview();
 }
@@ -3159,7 +3286,6 @@ $('penUndo').addEventListener('click', () => {
   if (!strokes().length) return;
   strokes().pop();
   inkEl.lastElementChild?.remove();
-  updateEdgeControls();
   scheduleSave();
 });
 
@@ -3201,7 +3327,7 @@ function inkPointerUp(e){
   try{ gridEl.releasePointerCapture(e.pointerId); }catch(_){}
   state.ink = null;
   if (ink.erasing){
-    if (ink.erased){ updateEdgeControls(); scheduleSave(); }
+    if (ink.erased) scheduleSave();
     return;
   }
   commitStroke(ink);
@@ -3239,7 +3365,6 @@ function pushInkPoint(clientX, clientY){
 function commitStroke(ink){
   if (!ink || !ink.stroke) return;
   strokes().push(ink.stroke);
-  updateEdgeControls();
   scheduleSave();
 }
 
@@ -3268,7 +3393,7 @@ function eraseAt(clientX, clientY){
   all.splice(hit, 1);
   inkEl.children[hit]?.remove();
   if (state.ink) state.ink.erased = true;
-  else { updateEdgeControls(); scheduleSave(); }
+  else scheduleSave();
 }
 
 /* ---- ペンモード中の2本指スクロール ---- */
@@ -3293,6 +3418,8 @@ function moveInkPan(){
 let lastBoardPoint = null; // 直近のポインタ位置（board-px）。貼り付け位置に使う
 window.addEventListener('pointermove', e => {
   if (!boardView.hidden) lastBoardPoint = boardPoint(e.clientX, e.clientY);
+  // 盤面サイズの変更はモードによらず（ペン中でも）掴めるので最初に見る
+  if (state.boardResize && e.pointerId === state.boardResize.pointerId){ boardResizeMove(e); return; }
   if (state.mode !== 'select'){ inkPointerMove(e); return; }
   if (state.placing){ movePlacing(e.clientX, e.clientY); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ resizeMove(e); return; }
@@ -3324,6 +3451,7 @@ window.addEventListener('pointermove', e => {
 });
 
 window.addEventListener('pointerup', e => {
+  if (state.boardResize && e.pointerId === state.boardResize.pointerId){ endBoardResize(false); return; }
   if (state.mode !== 'select'){ inkPointerUp(e); return; }
   if (state.placing){ finishPlacing(e); return; }
   if (state.resize && e.pointerId === state.resize.pointerId){ endResize(false); return; }
@@ -3352,6 +3480,7 @@ window.addEventListener('pointerup', e => {
 });
 
 window.addEventListener('pointercancel', e => {
+  if (state.boardResize && e.pointerId === state.boardResize.pointerId){ endBoardResize(true); return; }
   if (state.mode !== 'select'){
     inkPointers.delete(e.pointerId);
     if (state.ink && state.ink.pointerId === e.pointerId) abortInk();
@@ -3373,10 +3502,11 @@ window.addEventListener('pointercancel', e => {
   }
 });
 
-// ドラッグ/リサイズ/コピー配置/範囲選択/手書きの確定後に
+// ドラッグ/リサイズ/コピー配置/範囲選択/手書き/盤面サイズ変更の確定後に
 // ネイティブスクロールが割り込むのを防ぐ
 window.addEventListener('touchmove', e => {
-  if (state.drag || state.resize || state.placing || state.marquee || state.ink) e.preventDefault();
+  if (state.drag || state.resize || state.placing || state.marquee ||
+      state.ink || state.boardResize) e.preventDefault();
 }, { passive: false });
 
 // タッチ長押しのコンテキストメニューを抑止
@@ -3411,7 +3541,6 @@ function createBlockAt(at){
   gridEl.appendChild(el);
   layoutItem(b);
   select(b.id);
-  updateEdgeControls();
   scheduleSave();
   openEditor(b.id); // 生成直後にその場エディタを開く
 }
@@ -3422,7 +3551,8 @@ addBlockBtn.addEventListener('click', () => {
 
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
-  if (!lightboxEl.hidden) closeLightbox();
+  if (state.boardResize) endBoardResize(true); // ドラッグ中の盤面サイズ変更を取り消す
+  else if (!lightboxEl.hidden) closeLightbox();
   else if (!dbxPickerEl.hidden) closeDbxPicker();
   else if (!settingsModal.hidden) settingsModal.hidden = true;
   else if (state.editing) commitEditor(); // Escも確定扱い
