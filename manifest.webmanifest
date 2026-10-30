@@ -1,7 +1,8 @@
 {
+  "id": "/PlotBuilder/plotboard",
   "name": "プロットボード",
   "short_name": "プロットボード",
-  "description": "漫画・物語のプロットをグリッドスナップ式ブロックとして配置・組み換えするWebアプリ",
+  "description": "漫画・物語のプロットを自由座標のキャンバス上で配置・組み換えするWebアプリ",
   "lang": "ja",
   "start_url": "plotboard.html",
   "scope": "./",
