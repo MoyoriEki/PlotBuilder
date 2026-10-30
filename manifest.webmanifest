@@ -7,7 +7,7 @@
   "start_url": "plotboard.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#fafaf7",
   "theme_color": "#fafaf7",
   "icons": [
